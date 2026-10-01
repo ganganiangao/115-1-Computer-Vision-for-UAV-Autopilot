@@ -17,20 +17,20 @@ def otsu_threshold(gray_img):
     # 2. 依序將 0~255 當作閾值計算組內變異數和
     for t in range(256):
         # 劃分兩組：背景 (強度 <= t) 與 前景 (強度 > t)
-        q1 = np.sum(prob[:t + 1])      # 背景像素權重
-        q2 = np.sum(prob[t + 1:])      # 前景像素權重
+        q1 = np.sum(prob[:t + 1])      # 背景像素權重和 灰階強度在 0 ~ t 的像素權重和
+        q2 = np.sum(prob[t + 1:])      # 前景像素權重和 灰階強度在 t+1 ~ 255 的像素權重和
 
         # 若其中一組為空，跳過此閾值
         if q1 == 0 or q2 == 0:
             continue
 
         # 計算背景的平均值與變異數
-        intensities_1 = np.arange(0, t + 1)
+        intensities_1 = np.arange(0, t + 1)  # [0, 1, 2, ..., t]
         mean_1 = np.sum(intensities_1 * prob[:t + 1]) / q1
         var_1 = np.sum(((intensities_1 - mean_1) ** 2) * prob[:t + 1]) / q1
 
         # 計算前景的平均值與變異數
-        intensities_2 = np.arange(t + 1, 256)
+        intensities_2 = np.arange(t + 1, 256)  # [t+1, t+2, ..., 255]
         mean_2 = np.sum(intensities_2 * prob[t + 1:]) / q2
         var_2 = np.sum(((intensities_2 - mean_2) ** 2) * prob[t + 1:]) / q2
 
