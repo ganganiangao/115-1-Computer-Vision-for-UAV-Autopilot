@@ -98,6 +98,8 @@ def main():
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 0:
         fps = 30
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))  # 總 frame 數（部分影片可能為 0 或不準）
+    print(f"影片有 {total} frames")
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
@@ -144,13 +146,13 @@ def main():
 
         idx += 1
         if idx % 30 == 0:
-            print(f"已處理 {idx} 幀")
+            print(f"已處理 {idx} / {total}" if total > 0 else f"已處理 {idx}")
 
     cap.release()
     writer.release()
     if SHOW:
         cv2.destroyAllWindows()
-    print(f"完成，共 {idx} 幀，已儲存至 {out_path}")
+    print(f"完成，已處理 {idx} / {total if total > 0 else idx}，已儲存至 {out_path}")
 
 
 if __name__ == "__main__":
