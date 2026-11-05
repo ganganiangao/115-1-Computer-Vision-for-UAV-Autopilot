@@ -353,7 +353,8 @@ def main():
                         fwd_speed = z_pid.update(z_err)
                         yaw_speed = yaw_pid.update(yaw_deg)
 
-                        is_in_range = (abs(z_err) <= 7.5) and (abs(x_err) <= 10.0)              # 前後距離在 50 ± 7.5 cm 內，左右偏差在 ± 10.0 cm 內（必須居中正對，不能太偏）
+                        x_tolerance = 15
+                        is_in_range = (abs(z_err) <= 7.5) and (abs(x_err) <= x_tolerance)              # 前後距離在 50 ± 7.5 cm 內，左右偏差在 ± 15.0 cm 內（必須居中正對，不能太偏）
                         # 若某幀因為風吹或視角反光稍微出界：只減 1 而不是直接歸零，防止無人機在門檻邊緣頻繁重置而卡關
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
                         status_text = f"S1[ID 1] Dist:{dist:.1f}/{ID1_TARGET_DIST}cm ({target_reached_counter}/4)"
@@ -367,9 +368,8 @@ def main():
                             # 若 x_err = +10 (偏右)，實際需要右移 90 - (+10) = 80 cm
                             actual_right_dist = int(round(ID1_BYPASS_RIGHT - x_err))
                             # 限制 actual_right_dist 在安全範圍 (避免極端雜訊造成位移過大或過小，例如限制 ID1_BYPASS_RIGHT ± 20 cm)
-                            tolerance = 20                                                                                  # 容許最大補償範圍 (cm)
-                            min_safe = max(20, ID1_BYPASS_RIGHT - tolerance)                                                # 20cm 為 Tello SDK 的最低物理位移限制
-                            max_safe = ID1_BYPASS_RIGHT + tolerance
+                            min_safe = max(20, int(round(ID1_BYPASS_RIGHT - x_tolerance)))                                                # 20cm 為 Tello SDK 的最低物理位移限制
+                            max_safe = int(round(ID1_BYPASS_RIGHT + x_tolerance))
 
                             actual_right_dist = max(min_safe, min(max_safe, actual_right_dist))
                             
@@ -396,17 +396,24 @@ def main():
                         fwd_speed = z_pid.update(z_err)
                         yaw_speed = yaw_pid.update(yaw_deg)
 
-                        is_in_range = (dist <= ID2_TARGET_DIST + 10.0) and (abs(x_err) <= 15.0)
+                        x_tolerance = 15
+                        is_in_range = (dist <= ID2_TARGET_DIST + 10.0) and (abs(x_err) <= x_tolerance)
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
-                        status_text = f"S3[ID 2] Dist:{dist:.1f}/{ID2_TARGET_DIST}cm ({target_reached_counter}/3)"
+                        status_text = f"S3[ID 2] Dist:{dist:.1f}/{ID2_TARGET_DIST}cm ({target_reached_counter}/4)"
 
-                        # 為求加速，ID 2 連續 3 幀達標即刻切入左移
-                        if is_flying and target_reached_counter >= 3:
+                        if is_flying and target_reached_counter >= 4:
                             target_reached_counter = 0
-                            print("[STATE] ID 2 到位！先左移 60cm 脫離板子，接著掃描 ID 0")
+
+                            # 動態計算實際需要的左移距離：
+                            actual_left_dist = int(round(ID2_INIT_LEFT + x_err))
+                            min_safe = max(20, int(round(ID2_INIT_LEFT - x_tolerance)))
+                            max_safe = int(round(ID2_INIT_LEFT + x_tolerance))
+                            actual_left_dist = max(min_safe, min(max_safe, actual_left_dist))
+
+                            print(f"[STATE] ID 2 到位！最後偏差 x_err={x_err:.1f}cm，動態向左脫離板子 {actual_left_dist}cm")
                             threading.Thread(
                                 target=execute_maneuver,
-                                args=(drone, [("left", ID2_INIT_LEFT)], 4),
+                                args=(drone, [("left", actual_left_dist)], 4),
                                 daemon=True
                             ).start()
                     else:
