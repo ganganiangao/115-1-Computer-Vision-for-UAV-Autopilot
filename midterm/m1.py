@@ -71,6 +71,7 @@ class SimplePID:
         self.integral = 0.0
         self.prev_time = time.time()
 
+    # 在成功轉入下一個狀態時（例如看到 ID 0、ID 3 或 ID 5），執行 .reset() 清空內部累積狀態，確保前一個動作的慣性不干擾新動作
     def reset(self):
         self.prev_error = 0.0
         self.integral = 0.0
@@ -127,6 +128,7 @@ def async_land(drone):
 """
     執行循序離散動作 (為求加快速度，將動作間的硬性停頓壓縮至 0.25 秒)
     支援指令: right, left, forward, back, up, down, cw, ccw
+    專門處理那些「無法靠看 Marker 即時對準，必須照固定距離或角度硬走」的過渡動作（例如：繞過板子、鑽桌底向前衝、旋轉 90 度等）
 """
 def execute_maneuver(drone, actions, next_state=None):
     
@@ -168,13 +170,28 @@ def execute_maneuver(drone, actions, next_state=None):
     is_executing_maneuver = False
     print(f"[STATE] Successfully transitioned to STATE {current_state}")
 
+"""
 #  手動控制
+=========================== [ 快捷鍵速查表 ] ===========================
+  【飛行狀態】          【鍵盤佈局對照】              【賽道除錯救援】
+   [1] 起飛                [w] 前進                    [r] 狀態重置為 0
+   [2] 降落        [a] 左移         [d] 右移           [b] 狀態退回上一關
+   [3] 急停懸停            [s] 後退                    [n] 強制跳下一關
+   [ESC] 緊降退出
+  ---------------------------------------------------------------------
+  【高度與轉向】        【狀態查詢】
+   [x] 上升              [5] 查詢高度
+   [z] 下降              [6] 查詢電量
+   [c] 順時針轉 45°(右轉)
+   [v] 逆時針轉 45°(左轉)
+=======================================================================
+"""
 def keyboard(drone, key):
     global is_flying, current_state
     fb_speed = 45
     lf_speed = 45
     ud_speed = 50
-    degree = 35
+    degree = 45
 
     if key == ord("1"):
         if not is_flying:
@@ -242,6 +259,9 @@ def get_marker_pose(corners, ids, target_id, marker_length, intrinsic, distortio
     Z_prime = np.dot(R, np.array([0, 0, 1]))
     yaw_deg = math.degrees(math.atan2(Z_prime[0], Z_prime[2]))
 
+    # 回傳是否找到目標（True/False），
+    # 以及繪圖與 PID 所需的 4 個直接控制變數：
+    # 水平偏量 (x_err)、高度偏量 (y_err)、前方距離 (dist)、偏航角度 (yaw_deg)
     return True, rvec, tvec, x_err, y_err, dist, yaw_deg
 
 
@@ -576,6 +596,7 @@ def main():
         drone.streamoff()
         cv2.destroyAllWindows()
 
+    print(f"[SYSTEM]  Battery: {drone.get_battery()}%")
 
 if __name__ == "__main__":
     main()
