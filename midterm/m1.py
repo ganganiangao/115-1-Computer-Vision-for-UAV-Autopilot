@@ -309,6 +309,7 @@ def main():
 
     try:
         while True:
+            """============ 影像擷取與前處理 (Sense) ============"""
             frame = frame_read.frame
             if frame is None:
                 cv2.waitKey(1)
@@ -321,11 +322,16 @@ def main():
             if ids is not None:
                 aruco.drawDetectedMarkers(display_frame, corners, ids)
 
-            lr_speed, fwd_speed, up_speed, yaw_speed = 0, 0, 0, 0
+            """================================================"""
+            """============ 決策與狀態機運算 (Plan) ============"""
+            lr_speed, fwd_speed, up_speed, yaw_speed = 0, 0, 0, 0  # 速度重置歸零：每一幀一開始先把 lr_speed, fwd_speed, up_speed, yaw_speed 預設為 0
             status_text = "Waiting..."
+            
 
             # ==========================================================
             # 狀態機邏輯與多重 Marker 優先權處理
+            # 若無人機正在執行鑽桌子或側移等固定開迴路動作（is_executing_maneuver == True），主迴圈就不做任何干涉
+            # 只有在正常狀態下，才會根據目前的 current_state（0～10）尋找對應的 Marker、計算空間誤差，並透過 PID 賦予四軸速度
             # ==========================================================
             if not is_executing_maneuver:
 
@@ -563,9 +569,30 @@ def main():
                 elif current_state == 11:
                     status_text = "S11: Track Complete! Landed."
 
-            # ==========================================================
-            # 畫面 HUD 資訊繪製
-            # ==========================================================
+            # ========================================================================================
+            #                                 HUD 畫面疊加資訊配置圖
+            # ========================================================================================
+            # 視窗左上角 (0, 0)
+            # +------------------------------------------------------------------------------------+
+            # |                                                                                    |
+            # |  (20, 30)  [黃字] State: <0~11> | Maneuver: <True/False>                           |
+            # |  (20, 65)  [綠字] <status_text: 當前目標 Marker / 距離 / 達標計數 (3/4) / 搜尋狀態>  |
+            # |  (20, 100) [青字] RC: [LR:<左右>, FB:<前後>, UD:<上下>, YAW:<旋轉>]                |
+            # |                                                                                    |
+            # |                                                                                    |
+            # |                                                                                    |
+            # |                           [綠框: 偵測到的 Marker 角點]                             |
+            # |                             +-------------+                                        |
+            # |                             |  ID: <0~5>  |                                        |
+            # |                             |    (X,Y,Z)  | <--- 3D 姿態軸 (紅=X, 綠=Y, 藍=Z)      |
+            # |                             +-------------+                                        |
+            # |                                                                                    |
+            # +------------------------------------------------------------------------------------+
+            # 【圖層說明】
+            # 1. 畫面底層：Tello 鏡頭即時串流畫面 (display_frame)
+            # 2. 視覺標註：aruco.drawDetectedMarkers (綠色方框與ID) + aruco.drawAxis (3D坐標軸)
+            # 3. 抬頭文字：3 行 cv2.putText，即時監控無人機的狀態機、對準進度與四軸輸出速度
+            # ========================================================================================
             cv2.putText(display_frame, f"State: {current_state} | Maneuver: {is_executing_maneuver}",
                         (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 200, 0), 2)
             cv2.putText(display_frame, status_text,
@@ -586,6 +613,7 @@ def main():
                     break
                 keyboard(drone, key)
             else:
+                # 只要無人機正在飛、且沒有在做 Maneuver、且尚未抵達終點降落（current_state < 11），就呼叫 drone.send_rc_control(...) 將算好的 PID 速度送給無人機
                 if is_flying and not is_executing_maneuver and current_state < 11:
                     drone.send_rc_control(lr_speed, fwd_speed, up_speed, -yaw_speed)
 
