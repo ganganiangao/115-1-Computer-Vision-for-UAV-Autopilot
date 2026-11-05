@@ -397,7 +397,8 @@ def main():
                         yaw_speed = yaw_pid.update(yaw_deg)
 
                         x_tolerance = 15
-                        is_in_range = (dist <= ID2_TARGET_DIST + 10.0) and (abs(x_err) <= x_tolerance)
+                        z_tolerance = 10.0  # 深度容許公差 ±10cm (範圍 105 ~ 125 cm)
+                        is_in_range = (abs(z_err) <= z_tolerance) and (abs(x_err) <= x_tolerance)                                       # 判定條件：前後在 115 ± 10cm 內，且左右在 ±15cm 內
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
                         status_text = f"S3[ID 2] Dist:{dist:.1f}/{ID2_TARGET_DIST}cm ({target_reached_counter}/4)"
 
