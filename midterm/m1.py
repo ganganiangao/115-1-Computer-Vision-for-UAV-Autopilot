@@ -596,7 +596,10 @@ def main():
         drone.streamoff()
         cv2.destroyAllWindows()
 
-    print(f"[SYSTEM]  Battery: {drone.get_battery()}%")
+    try:
+        print(f"[SYSTEM] Remaining Battery: {drone.get_battery()}%")
+    except Exception as e:
+        print(f"[SYSTEM] Could not read battery: {e}")
 
 if __name__ == "__main__":
     main()
