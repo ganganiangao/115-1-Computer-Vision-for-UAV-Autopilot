@@ -337,23 +337,24 @@ def main():
 
                 # --- [第一段] State 0 & 1: 鎖定並逼近 ID 1 (50cm) ---
                 if current_state in [0, 1]:
-                    found, rvec, tvec, x_err, y_err, dist, yaw_deg = get_marker_pose(
+                    found, rvec, tvec, x_err, y_err, dist, yaw_deg = get_marker_pose(           # 從相機看到的所有標籤中，單獨過濾出 ID 1
                         corners, ids, 1, marker_length, intrinsic, distortion
                     )
                     if found:
-                        if current_state == 0:
+                        if current_state == 0:                                                  # 若原本是 State 0，看到 ID 1 的瞬間立即提升為 State 1，並將計數器歸零
                             current_state = 1
                             target_reached_counter = 0
                             print("[STATE] 偵測到 ID 1 -> 進入 STATE 1 (逼近至 50cm)")
 
                         aruco.drawAxis(display_frame, intrinsic, distortion, rvec, tvec, 10)
-                        z_err = dist - ID1_TARGET_DIST
-                        lr_speed = x_pid.update(x_err)
-                        up_speed = y_pid.update(y_err)
+                        z_err = dist - ID1_TARGET_DIST                                          # 誤差計算：前後目標是 50cm，因此深度誤差為 z_err = dist - 50.0
+                        lr_speed = x_pid.update(x_err)                                          # PID 四軸聯動：將 4 個誤差丟給對應的 PID
+                        up_speed = y_pid.update(y_err)                                          # 算出此幀的左右平移速度（lr_speed）、升降速度（up_speed）、前進速度（fwd_speed）與自轉速度（yaw_speed）
                         fwd_speed = z_pid.update(z_err)
                         yaw_speed = yaw_pid.update(yaw_deg)
 
-                        is_in_range = (abs(z_err) <= 7.5) and (abs(x_err) <= 10.0)
+                        is_in_range = (abs(z_err) <= 7.5) and (abs(x_err) <= 10.0)              # 前後距離在 50 ± 7.5 cm 內，左右偏差在 ± 10.0 cm 內（必須居中正對，不能太偏）
+                        # 若某幀因為風吹或視角反光稍微出界：只減 1 而不是直接歸零，防止無人機在門檻邊緣頻繁重置而卡關
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
                         status_text = f"S1[ID 1] Dist:{dist:.1f}/{ID1_TARGET_DIST}cm ({target_reached_counter}/4)"
 
