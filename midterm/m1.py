@@ -403,7 +403,11 @@ def main():
 
                         if is_flying and target_reached_counter >= 4:
                             target_reached_counter = 0
-
+                            # 加上 reset，防止即將進入 State 4/5 時殘留累積的誤差/積分動量
+                            x_pid.reset()
+                            y_pid.reset()
+                            z_pid.reset()
+                            yaw_pid.reset()
                             # 動態計算實際需要的左移距離：
                             actual_left_dist = int(round(ID2_INIT_LEFT + x_err))
                             min_safe = max(20, int(round(ID2_INIT_LEFT - x_tolerance)))
