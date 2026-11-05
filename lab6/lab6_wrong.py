@@ -94,6 +94,9 @@ def main():
                 aruco.drawDetectedMarkers(display_frame, corners, ids)
 
                 # 估計位姿 (rvec, tvec)
+                # 相機座標系定義：以 Tello 鏡頭中心為原點，X 軸朝右、Y 軸朝下、Z 軸朝前（深度方向）
+                # rvec（旋轉向量 Rotation Vector）：以 Rodrigues 形式表示 Marker 相對鏡頭的 3D 旋轉姿態
+                # tvec（平移向量 Translation Vector）：表示 Marker 在相機座標系中的 3D 空間位置 (X, Y, Z)，單位為公分（cm）
                 rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(
                     corners, marker_length, intrinsic, distortion
                 )

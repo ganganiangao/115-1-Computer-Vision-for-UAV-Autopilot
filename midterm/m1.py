@@ -59,9 +59,8 @@ is_flying = False
 current_state = 0
 is_executing_maneuver = False
 
-
-class SimplePID:
-    """輕量且具備最低死區補償的 PID 控制器"""
+""" 輕量且具備最低死區補償的 PID 控制器"""
+class SimplePID:  
     def __init__(self, kp, ki, kd, min_output=12, max_output=28):
         self.kp = kp
         self.ki = ki
@@ -125,11 +124,12 @@ def async_land(drone):
         print(f"[Land Error] {e}")
 
 
-def execute_maneuver(drone, actions, next_state=None):
-    """
+"""
     執行循序離散動作 (為求加快速度，將動作間的硬性停頓壓縮至 0.25 秒)
     支援指令: right, left, forward, back, up, down, cw, ccw
-    """
+"""
+def execute_maneuver(drone, actions, next_state=None):
+    
     global is_executing_maneuver, current_state
     is_executing_maneuver = True
     drone.send_rc_control(0, 0, 0, 0)
@@ -168,7 +168,7 @@ def execute_maneuver(drone, actions, next_state=None):
     is_executing_maneuver = False
     print(f"[STATE] Successfully transitioned to STATE {current_state}")
 
-
+#  手動控制
 def keyboard(drone, key):
     global is_flying, current_state
     fb_speed = 45
@@ -217,9 +217,9 @@ def keyboard(drone, key):
     elif key == ord("6"):
         print("Battery:", drone.get_battery())
 
-
+"""從偵測到的所有 Markers 中精準抽出指定 target_id 的姿態與資訊"""
 def get_marker_pose(corners, ids, target_id, marker_length, intrinsic, distortion):
-    """從偵測到的所有 Markers 中精準抽出指定 target_id 的姿態與資訊"""
+    
     if ids is None or len(corners) == 0:
         return False, None, None, 0.0, 0.0, 0.0, 0.0
 
