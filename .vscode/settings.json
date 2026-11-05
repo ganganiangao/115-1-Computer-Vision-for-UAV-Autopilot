@@ -1,4 +1,5 @@
 {
     "python-envs.defaultEnvManager": "ms-python.python:conda",
-    "python-envs.defaultPackageManager": "ms-python.python:conda"
+    "python-envs.defaultPackageManager": "ms-python.python:conda",
+    "cmake.sourceDirectory": "C:/Users/ray10/OneDrive/桌面/115-1-Computer-Vision-for-UAV-Autopilot/lab5/h264decoder"
 }
