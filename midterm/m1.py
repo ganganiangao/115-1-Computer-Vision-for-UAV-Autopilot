@@ -361,10 +361,22 @@ def main():
                         if is_flying and target_reached_counter >= 4:
                             target_reached_counter = 0
                             current_state = 2
-                            print("[STATE] ID 1 到位！執行向右避障 90cm")
+
+                            # 動態計算實際需要的右移距離：
+                            # 若 x_err = -10 (偏左)，實際需要右移 90 - (-10) = 100 cm
+                            # 若 x_err = +10 (偏右)，實際需要右移 90 - (+10) = 80 cm
+                            actual_right_dist = int(round(ID1_BYPASS_RIGHT - x_err))
+                            # 限制 actual_right_dist 在安全範圍 (避免極端雜訊造成位移過大或過小，例如限制 ID1_BYPASS_RIGHT ± 20 cm)
+                            tolerance = 20                                                                                  # 容許最大補償範圍 (cm)
+                            min_safe = max(20, ID1_BYPASS_RIGHT - tolerance)                                                # 20cm 為 Tello SDK 的最低物理位移限制
+                            max_safe = ID1_BYPASS_RIGHT + tolerance
+
+                            actual_right_dist = max(min_safe, min(max_safe, actual_right_dist))
+                            
+                            print(f"[STATE] ID 1 到位！最後偏差 x_err={x_err:.1f}cm | 動態向右避障 {actual_right_dist}cm")
                             threading.Thread(
                                 target=execute_maneuver,
-                                args=(drone, [("right", ID1_BYPASS_RIGHT)], 3),
+                                args=(drone, [("right", actual_right_dist)], 3),
                                 daemon=True
                             ).start()
                     else:
