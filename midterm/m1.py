@@ -441,7 +441,7 @@ def main():
                         fwd_speed = z_pid.update(z_err)
                         yaw_speed = yaw_pid.update(yaw_deg)
 
-                        is_in_range = (abs(z_err) <= 10.0) and (abs(x_err) <= 10.0) and (abs(yaw_deg) <= 12.0)
+                        is_in_range = (abs(z_err) <= 30.0) and (abs(x_err) <= 10.0) and (abs(yaw_deg) <= 12.0)
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
                         status_text = f"S6[ID 3 Table] Dist:{dist_3:.1f}/{ID3_TARGET_DIST}cm ({target_reached_counter}/4)"
 
