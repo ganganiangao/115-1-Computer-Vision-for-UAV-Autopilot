@@ -376,7 +376,7 @@ def main():
                             print(f"[STATE] ID 1 到位！最後偏差 x_err={x_err:.1f}cm | 動態向右避障 {actual_right_dist}cm")
                             threading.Thread(
                                 target=execute_maneuver,
-                                args=(drone, [("right", actual_right_dist)], 3),
+                                args=(drone, [("right", actual_right_dist)], 3),                                            # <-- 這裡的 3 就是 next_state, i.e. current_state = 3
                                 daemon=True
                             ).start()
                     else:
