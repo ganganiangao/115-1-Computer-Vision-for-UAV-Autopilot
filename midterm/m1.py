@@ -27,7 +27,7 @@ ID3_HANDOFF_DIST = 170.0     # 當看到 ID 3 且距離小於此值時，自動�
 # 第三段參數 (ID 3 鑽桌子 -> 轉向找 ID 4)
 ID3_TARGET_DIST = 80.0       # 在桌前對準 ID 3 的準備鑽桌距離 (cm)
 TABLE_DOWN_DIST = 55         # 鑽桌子下降高度 (cm) - 注意 Tello 最低離地限制
-TABLE_FWD_DIST = 240         # 穿過桌底向前距離 (cm) (規格為 150cm)
+TABLE_FWD_DIST = ID3_TARGET_DIST + 200 # 穿過桌底向前距離 (cm) (規格為 150cm，實際上是 200cm)
 TABLE_CW_DEG = 90            # 穿出桌底後向右旋轉角度 (度)
 TABLE_UP_DIST = 85           # 旋轉後上升找 ID 4 的高度 (cm)
 
@@ -531,10 +531,14 @@ def main():
                             z_pid.reset()
                             yaw_pid.reset()
 
+                            # 當 dist_3 = 90 (停得較遠)，z_err = +10 -> 前進 240 + 10 = 250
+                            # 當 dist_3 = 70 (停得較近)，z_err = -10 -> 前進 240 - 10 = 230
+                            actual_fwd_dist = int(round(TABLE_FWD_DIST + z_err))
+
                             print("[STATE] ID 3 對準完成！執行鑽桌子與旋轉爬升動作")
                             table_actions = [
                                 ("down", TABLE_DOWN_DIST),
-                                ("forward", TABLE_FWD_DIST),
+                                ("forward", actual_fwd_dist),
                                 ("cw", TABLE_CW_DEG),
                                 ("up", TABLE_UP_DIST)
                             ]
