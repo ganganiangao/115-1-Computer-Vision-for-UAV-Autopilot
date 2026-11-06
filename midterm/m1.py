@@ -29,7 +29,8 @@ ID3_TARGET_DIST = 80.0       # 在桌前對準 ID 3 的準備鑽桌距離 (cm)
 TABLE_DOWN_DIST = 55         # 鑽桌子下降高度 (cm) - 注意 Tello 最低離地限制
 TABLE_FWD_DIST = ID3_TARGET_DIST + 200 # 穿過桌底向前距離 (cm) (規格為 150cm，實際上是 200cm)
 TABLE_CW_DEG = 90            # 穿出桌底後向右旋轉角度 (度)
-TABLE_UP_DIST = 85           # 旋轉後上升找 ID 4 的高度 (cm)
+TABLE_BACK_DIST = 20           # 旋轉後先往後方便找 ID 4 (cm)
+TABLE_UP_DIST = 125           # 旋轉後上升找 ID 4 的高度 (cm)
 
 # 第四段參數 (ID 4 -> 越過板子上方 -> 找 ID 5)
 SCAN_ID4_UP_SPEED = 32      # 向上尋找 ID 4 的速度
@@ -52,11 +53,11 @@ DESIRED_LAND_DIST = 150.0     # 桌面中心距離牆壁 ID 5 的實際距離 (c
 # 3: 逼近 ID 2 至 115cm & 左移 60cm 脫離板子(Maneuver)
 # 4: 持續掃描 ID 0
 # 5: 跟隨手持 ID 0 繞椅子 (若同時看到 ID 3 進入範圍則自動切換至 State 6)
-# 6: 對準桌子上的 ID 3 (距離 90cm)
-# 7: 執行鑽桌子與旋轉上升複合動作 (Maneuver: 下 -> 前 150 -> 右轉 90 -> 上)
-# 8: 對準並逼近牆面 ID 4 至 50cm，到位後後退 30cm 拓展視野 (Maneuver) + 可能要先向上跨越板子 (Maneuver)
+# 6: 對準桌子上的 ID 3 (距離 80cm)
+# 7: 執行鑽桌子與旋轉上升複合動作 (Maneuver: 下 -> 前 dist_3 + 200 -> 右轉 90 -> 上)
+# 8: 對準並逼近牆面 ID 4 至 80cm，到位後後退 30cm 拓展視野 (Maneuver) + 可能要先向上跨越板子 (Maneuver)
 # 9: 持續向左水平移動直到看見 ID 5  註記：先測試看看單純向左可不可以找到 ID 5 如果不行就要向後擴大視野
-# 10: 對準 ID 5 並後退至距離 150cm (桌子正上方)
+# 10: 對準 ID 5 (距離 80 cm) 並後退至距離 150cm (桌子正上方)
 # 11: 降落於桌上，賽道完成
 
 is_flying = False
@@ -540,6 +541,7 @@ def main():
                                 ("down", TABLE_DOWN_DIST),
                                 ("forward", actual_fwd_dist),
                                 ("cw", TABLE_CW_DEG),
+                                ("back", TABLE_BACK_DIST),
                                 ("up", TABLE_UP_DIST)
                             ]
                             threading.Thread(
