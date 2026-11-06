@@ -475,6 +475,7 @@ def main():
                         y_pid.reset()
                         z_pid.reset()
                         yaw_pid.reset()
+                        fwd_speed = 32
                         current_state = 6
                         continue
 
@@ -515,7 +516,7 @@ def main():
                         # 參數設定的重點是 ID3_TARGET_DIST, x_tolerance, z_tolerance, yaw_tolerance 必須彼此搭配，確保可以正對到 ID 3
                         z_tolerance = 15.0   # 深度容許範圍
                         x_tolerance = 15.0   # 水平對齊必須嚴格 (± 8cm 確保進洞居中)
-                        yaw_tolerance = 10 # 航向必須正對 (± 8度 避免盲飛撞桌腳)
+                        yaw_tolerance = 15 # 航向必須正對 (± 8度 避免盲飛撞桌腳)
                         ## 原本180-yaw_deg的寫法會讓tolerance不成立
                         yaw_diff = (yaw_deg - 180 + 180) % 360 -180
 
