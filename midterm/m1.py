@@ -143,6 +143,20 @@ def execute_maneuver(drone, actions, next_state=None):
     for action, val in actions:
         if not is_flying:
             break
+        # -------------------------------------------------------------
+        # Tello SDK 參數合法性防呆過濾
+        # 1. 旋轉 (cw, ccw): 範圍 1 ~ 360 度
+        # 2. 位移 (up, down, left, right, forward, back): 範圍 20 ~ 500 cm
+        # -------------------------------------------------------------
+        if action in ["cw", "ccw"]:
+            if val < 1:
+                print(f"[MANEUVER WARN] {action} 旋轉角度 {val} < 1 度，略過此動作")
+                continue
+        else:
+            if val < 20:
+                print(f"[MANEUVER WARN] {action} 位移距離 {val} < 20 cm (SDK 底線限制)，略過此動作")
+                continue
+
         try:
             print(f"[MANEUVER] Executing {action} {val}...")
             if action == "right":
