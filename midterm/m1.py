@@ -353,8 +353,9 @@ def main():
                         fwd_speed = z_pid.update(z_err)
                         yaw_speed = yaw_pid.update(yaw_deg)
 
-                        x_tolerance = 15
-                        is_in_range = (abs(z_err) <= 7.5) and (abs(x_err) <= x_tolerance)              # 前後距離在 50 ± 7.5 cm 內，左右偏差在 ± 15.0 cm 內（必須居中正對，不能太偏）
+                        z_tolerance = 7.5
+                        x_tolerance = 15.0
+                        is_in_range = (abs(z_err) <= z_tolerance) and (abs(x_err) <= x_tolerance)              # 前後距離在 50 ± 7.5 cm 內，左右偏差在 ± 15.0 cm 內（必須居中正對，不能太偏）
                         # 若某幀因為風吹或視角反光稍微出界：只減 1 而不是直接歸零，防止無人機在門檻邊緣頻繁重置而卡關
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
                         status_text = f"S1[ID 1] Dist:{dist:.1f}/{ID1_TARGET_DIST}cm ({target_reached_counter}/4)"
