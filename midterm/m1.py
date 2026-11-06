@@ -6,7 +6,7 @@ import math
 import logging
 import threading
 from djitellopy import Tello
-
+#wojqoijoqwiejoiqwrjorqwjoqjro
 # 抑制 djitellopy 發送 RC 指令時的終端機洗版 log
 logging.getLogger("djitellopy").setLevel(logging.WARNING)
 
