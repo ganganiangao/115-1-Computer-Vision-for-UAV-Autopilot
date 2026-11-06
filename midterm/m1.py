@@ -22,10 +22,10 @@ SCAN_ID0_LEFT_SPEED = -28    # 持續往左找 ID 0 的水平速度 (-100~100)
 
 # 第二段參數 (手持 ID 0)
 ID0_FOLLOW_DIST = 75.0       # 跟隨手持 ID 0 的保持距離 (cm)
-ID3_HANDOFF_DIST = 150.0     # 當看到 ID 3 且距離小於此值時，自動脫離 ID 0 切入第三段
+ID3_HANDOFF_DIST = 170.0     # 當看到 ID 3 且距離小於此值時，自動脫離 ID 0 切入第三段
 
 # 第三段參數 (ID 3 鑽桌子 -> 轉向找 ID 4)
-ID3_TARGET_DIST = 50.0       # 在桌前對準 ID 3 的準備鑽桌距離 (cm)
+ID3_TARGET_DIST = 80.0       # 在桌前對準 ID 3 的準備鑽桌距離 (cm)
 TABLE_DOWN_DIST = 55         # 鑽桌子下降高度 (cm) - 注意 Tello 最低離地限制
 TABLE_FWD_DIST = 240         # 穿過桌底向前距離 (cm) (規格為 150cm)
 TABLE_CW_DEG = 90            # 穿出桌底後向右旋轉角度 (度)
@@ -33,14 +33,14 @@ TABLE_UP_DIST = 85           # 旋轉後上升找 ID 4 的高度 (cm)
 
 # 第四段參數 (ID 4 -> 越過板子上方 -> 找 ID 5)
 SCAN_ID4_UP_SPEED = 32      # 向上尋找 ID 4 的速度
-SCAN_ID4_BACK_SPEED = 0    # 向上尋找 ID 4 時向後擴展視野的速度
+SCAN_ID4_BACK_SPEED = -12    # 向上尋找 ID 4 時向後擴展視野的速度
 ID4_TARGET_DIST = 50.0      # 與牆上 ID 4 保持的距離 (cm)
 OVER_BOARD_UP_DIST = 0      # 對準 ID 4 後額外微幅上升高度，確保能從上方越過板子 (cm)
 BACK_FROM_ID4_DIST = 30      # 對準 ID 4 後向後距離，拓展視野方便尋找 ID 5
 SCAN_ID5_LEFT_SPEED = -32    # 越過板子上方往左找 ID 5 的水平速度
 
 # 第五段參數 (ID 5 後退至 150cm 降落桌上)
-ID5_TARGET_DIST = 50.0        # 與牆上 ID 4 保持的距離 (cm)
+ID5_TARGET_DIST = 50.0        # 與牆上 ID 5 保持的距離 (cm)
 DESIRED_LAND_DIST = 150.0     # 桌面中心距離牆壁 ID 5 的實際距離 (cm)
 
 # ==========================================
@@ -514,7 +514,7 @@ def main():
                         # 參數設定的重點是 ID3_TARGET_DIST, x_tolerance, z_tolerance, yaw_tolerance 必須彼此搭配，確保可以正對到 ID 3
                         z_tolerance = 15.0   # 深度容許範圍
                         x_tolerance = 15.0   # 水平對齊必須嚴格 (± 8cm 確保進洞居中)
-                        yaw_tolerance = 30 # 航向必須正對 (± 8度 避免盲飛撞桌腳)
+                        yaw_tolerance = 15 # 航向必須正對 (± 8度 避免盲飛撞桌腳)
                         ## 原本180-yaw_deg的寫法會讓tolerance不成立
                         yaw_diff = (yaw_deg - 180 + 180) % 360 -180
 
@@ -560,9 +560,9 @@ def main():
                         fwd_speed = z_pid.update(z_err)
                         yaw_speed = yaw_pid.update(yaw_deg)
 
-                        z_tolerance = 8.0
-                        x_tolerance = 8.0
-                        yaw_tolerance = 8.0
+                        z_tolerance = 15.0
+                        x_tolerance = 15.0
+                        yaw_tolerance = 15.0
 
                         ## 原本180-yaw_deg的寫法會讓tolerance不成立
                         yaw_diff = (yaw_deg - 180 + 180) % 360 -180
@@ -628,9 +628,9 @@ def main():
                         fwd_speed = z_pid.update(z_err)
                         yaw_speed = yaw_pid.update(yaw_deg)
 
-                        z_tolerance = 8.0
-                        x_tolerance = 8.0
-                        yaw_tolerance = 8.0
+                        z_tolerance = 15.0
+                        x_tolerance = 15.0
+                        yaw_tolerance = 15.0
 
                         ## 原本180-yaw_deg的寫法會讓tolerance不成立
                         yaw_diff = (yaw_deg - 180 + 180) % 360 -180
