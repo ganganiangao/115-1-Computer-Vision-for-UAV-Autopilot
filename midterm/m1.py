@@ -523,7 +523,7 @@ def main():
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
                         status_text = f"S6[ID 3 Table] Dist:{dist_3:.1f}/{ID3_TARGET_DIST}cm ({target_reached_counter}/4)"
 
-                        if is_flying and target_reached_counter >= 4:
+                        if is_flying and target_reached_counter >= 8:
                             target_reached_counter = 0
                             current_state = 7
                             # 鑽桌前重置 PID，消除殘存動量與前次誤差
