@@ -40,7 +40,8 @@ BACK_FROM_ID4_DIST = 30      # 對準 ID 4 後向後距離，拓展視野方便�
 SCAN_ID5_LEFT_SPEED = -32    # 越過板子上方往左找 ID 5 的水平速度
 
 # 第五段參數 (ID 5 後退至 150cm 降落桌上)
-ID5_LAND_DIST = 150.0        # 降落於桌上的目標距離 (cm)
+ID5_TARGET_DIST = 50.0        # 與牆上 ID 4 保持的距離 (cm)
+DESIRED_LAND_DIST = 150.0     # 桌面中心距離牆壁 ID 5 的實際距離 (cm)
 
 # ==========================================
 # 狀態機定義
@@ -616,22 +617,55 @@ def main():
                     )
                     if found_5:
                         aruco.drawAxis(display_frame, intrinsic, distortion, rvec, tvec, 10)
-                        z_err = dist_5 - ID5_LAND_DIST
+                        z_err = dist_5 - ID5_TARGET_DIST
                         lr_speed = x_pid.update(x_err)
                         up_speed = y_pid.update(y_err)
                         fwd_speed = z_pid.update(z_err)
                         yaw_speed = yaw_pid.update(yaw_deg)
 
-                        # 距離 150±10cm 且左右對準在 ±10cm 內即視為對準桌面中心
-                        is_in_range = (abs(z_err) <= 10.0) and (abs(x_err) <= 10.0)
+                        z_tolerance = 8.0
+                        x_tolerance = 8.0
+                        yaw_tolerance = 8.0
+
+                        is_in_range = (
+                            (abs(z_err) <= z_tolerance) and 
+                            (abs(x_err) <= x_tolerance) and 
+                            (abs(yaw_deg) <= yaw_tolerance)
+                        )
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
-                        status_text = f"S10[ID 5 Land] Dist:{dist_5:.1f}/{ID5_LAND_DIST}cm ({target_reached_counter}/4)"
+                        status_text = f"S10[ID 5 Land] Dist:{dist_5:.1f}/{ID5_TARGET_DIST}cm ({target_reached_counter}/4)"
 
                         if is_flying and target_reached_counter >= 4:
                             target_reached_counter = 0
-                            current_state = 11
-                            print("[STATE] 抵達 ID 5 前方 150cm 桌面正上方！執行自動降落！")
-                            threading.Thread(target=async_land, args=(drone,), daemon=True).start()
+                            current_state = 11  # 立即切換，防止下一幀又重複觸發
+                            
+                            # 消除 PID 殘餘動量
+                            x_pid.reset()
+                            y_pid.reset()
+                            z_pid.reset()
+                            yaw_pid.reset()
+
+                            # 動態計算實際後退距離：當前距離為 dist_5，目標到達 DESIRED_LAND_DIST (150cm)
+                            ID5_BACK_BASE = int(round(DESIRED_LAND_DIST - ID5_TARGET_DIST))  # 基準量 100 cm
+                            actual_back_dist = int(round(ID5_BACK_BASE - z_err))
+
+                            # 限制 actual_back_dist 在安全範圍 (避免極端雜訊造成位移過大或過小，限制基準值 ± z_tolerance)
+                            min_safe = max(20, int(round(ID5_BACK_BASE - z_tolerance)))      # 20cm 為 Tello SDK 的最低物理位移限制
+                            max_safe = int(round(ID5_BACK_BASE + z_tolerance))
+
+                            actual_back_dist = max(min_safe, min(max_safe, actual_back_dist))
+
+                            print(f"[STATE] ID 5 對準完成！當前距離 {dist_5:.1f}cm | 動態後退 {actual_back_dist}cm 至桌面中央降落")
+
+                            def land_sequence(back_dist):
+                                # 1. 執行精確補償後退
+                                execute_maneuver(drone, [("back", back_dist)])
+                                # 2. 後退完成，停懸 0.5 秒消除煞車慣性與地面氣流擾動
+                                time.sleep(0.5)
+                                # 3. 垂直落桌 (單次觸發)
+                                async_land(drone)
+
+                            threading.Thread(target=land_sequence, args=(actual_back_dist,), daemon=True).start()
                     else:
                         target_reached_counter = max(0, target_reached_counter - 1)
                         status_text = "S10: Searching ID 5 for Landing..."
