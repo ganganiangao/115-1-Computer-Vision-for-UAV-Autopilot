@@ -32,8 +32,11 @@ TABLE_CW_DEG = 90            # 穿出桌底後向右旋轉角度 (度)
 TABLE_UP_DIST = 85           # 旋轉後上升找 ID 4 的高度 (cm)
 
 # 第四段參數 (ID 4 -> 越過板子上方 -> 找 ID 5)
-ID4_TARGET_DIST = 145.0      # 與牆上 ID 4 保持的距離 (cm) (規格 ID 4 與桌子距離 150cm)
-OVER_BOARD_UP_DIST = 25      # 對準 ID 4 後額外微幅上升高度，確保能從上方越過板子 (cm)
+SCAN_ID4_UP_SPEED = 32      # 向上尋找 ID 4 的速度
+SCAN_ID4_BACK_SPEED = 0    # 向上尋找 ID 4 時向後擴展視野的速度
+ID4_TARGET_DIST = 50.0      # 與牆上 ID 4 保持的距離 (cm)
+OVER_BOARD_UP_DIST = 0      # 對準 ID 4 後額外微幅上升高度，確保能從上方越過板子 (cm)
+BACK_FROM_ID4_DIST = 30      # 對準 ID 4 後向後距離，拓展視野方便尋找 ID 5
 SCAN_ID5_LEFT_SPEED = -32    # 越過板子上方往左找 ID 5 的水平速度
 
 # 第五段參數 (ID 5 後退至 150cm 降落桌上)
@@ -50,8 +53,8 @@ ID5_LAND_DIST = 150.0        # 降落於桌上的目標距離 (cm)
 # 5: 跟隨手持 ID 0 繞椅子 (若同時看到 ID 3 進入範圍則自動切換至 State 6)
 # 6: 對準桌子上的 ID 3 (距離 90cm)
 # 7: 執行鑽桌子與旋轉上升複合動作 (Maneuver: 下 -> 前 150 -> 右轉 90 -> 上)
-# 8: 搜尋並對準牆上的 ID 4 (退至 145cm)並拉高準備越過板子
-# 9: 持續向左水平移動從上方穿越板子，直到看見 ID 5
+# 8: 對準並逼近牆面 ID 4 至 50cm，到位後後退 30cm 拓展視野 (Maneuver) + 可能要先向上跨越板子 (Maneuver)
+# 9: 持續向左水平移動直到看見 ID 5  註記：先測試看看單純向左可不可以找到 ID 5 如果不行就要向後擴大視野
 # 10: 對準 ID 5 並後退至距離 150cm (桌子正上方)
 # 11: 降落於桌上，賽道完成
 
@@ -540,23 +543,39 @@ def main():
                         fwd_speed = z_pid.update(z_err)
                         yaw_speed = yaw_pid.update(yaw_deg)
 
-                        is_in_range = (abs(z_err) <= 12.0) and (abs(x_err) <= 15.0)
-                        target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
-                        status_text = f"S8[ID 4 Wall] Dist:{dist_4:.1f}/{ID4_TARGET_DIST}cm ({target_reached_counter}/3)"
+                        z_tolerance = 8.0
+                        x_tolerance = 8.0
+                        yaw_tolerance = 8.0
 
-                        if is_flying and target_reached_counter >= 3:
+                        is_in_range = (
+                            (abs(z_err) <= z_tolerance) and 
+                            (abs(x_err) <= x_tolerance) and 
+                            (abs(yaw_deg) <= yaw_tolerance)
+                        )
+                        target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
+                        status_text = f"S8[ID 4 Wall] Dist:{dist_4:.1f}/{ID4_TARGET_DIST}cm ({target_reached_counter}/4)"
+
+                        if is_flying and target_reached_counter >= 4:
                             target_reached_counter = 0
-                            print("[STATE] ID 4 定位完成！微幅拉高並開始向左飛越板子上方")
-                            # 若板子較高，這裡先微幅上升 OVER_BOARD_UP_DIST (可設 20~30cm)，再進入 State 9 平移
+                            # 清空 PID，避免前次推進動量帶入下一個動作
+                            x_pid.reset()
+                            y_pid.reset()
+                            z_pid.reset()
+                            yaw_pid.reset()
+
+                            print("[STATE] ID 4 定位完成！微幅向後並開始向左飛越板子上方")
+                            # 為了防止找不到 ID 5 BACK_FROM_ID4_DIST (可設 20~30cm)，再進入 State 9 平移
                             threading.Thread(
                                 target=execute_maneuver,
-                                args=(drone, [("up", OVER_BOARD_UP_DIST)], 9),
+                                args=(drone, [("back", BACK_FROM_ID4_DIST), 
+                                              ("up", OVER_BOARD_UP_DIST)], 9),
                                 daemon=True
                             ).start()
                     else:
+                        target_reached_counter = max(0, target_reached_counter - 1)
                         # 剛從桌底鑽出來若高度不夠沒看到 ID 4，緩慢上升並退後擴大視野
-                        up_speed = 18
-                        fwd_speed = -12
+                        up_speed = SCAN_ID4_UP_SPEED
+                        fwd_speed = SCAN_ID4_BACK_SPEED
                         status_text = "S8: Climbing/Backing to find ID 4 on Wall..."
 
                 # --- [第四段] State 9: 持續向左水平移動越過板子，直到看見 ID 5 ---
