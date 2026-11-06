@@ -492,13 +492,24 @@ def main():
                         fwd_speed = z_pid.update(z_err)
                         yaw_speed = yaw_pid.update(yaw_deg)
 
-                        is_in_range = (abs(z_err) <= 30.0) and (abs(x_err) <= 10.0) and (abs(yaw_deg) <= 12.0)
+                        # 參數設定的重點是 ID3_TARGET_DIST, x_tolerance, z_tolerance, yaw_tolerance 必須彼此搭配，確保可以正對到 ID 3
+                        z_tolerance = 8.0   # 深度容許範圍
+                        x_tolerance = 8.0   # 水平對齊必須嚴格 (± 8cm 確保進洞居中)
+                        yaw_tolerance = 8.0 # 航向必須正對 (± 8度 避免盲飛撞桌腳)
+
+                        is_in_range = (abs(z_err) <= z_tolerance) and (abs(x_err) <= x_tolerance) and (abs(yaw_deg) <= yaw_tolerance)
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
                         status_text = f"S6[ID 3 Table] Dist:{dist_3:.1f}/{ID3_TARGET_DIST}cm ({target_reached_counter}/4)"
 
                         if is_flying and target_reached_counter >= 4:
                             target_reached_counter = 0
                             current_state = 7
+                            # 鑽桌前重置 PID，消除殘存動量與前次誤差
+                            x_pid.reset()
+                            y_pid.reset()
+                            z_pid.reset()
+                            yaw_pid.reset()
+
                             print("[STATE] ID 3 對準完成！執行鑽桌子與旋轉爬升動作")
                             table_actions = [
                                 ("down", TABLE_DOWN_DIST),
