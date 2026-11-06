@@ -27,7 +27,7 @@ ID3_HANDOFF_DIST = 150.0     # 當看到 ID 3 且距離小於此值時，自動�
 # 第三段參數 (ID 3 鑽桌子 -> 轉向找 ID 4)
 ID3_TARGET_DIST = 50.0       # 在桌前對準 ID 3 的準備鑽桌距離 (cm)
 TABLE_DOWN_DIST = 55         # 鑽桌子下降高度 (cm) - 注意 Tello 最低離地限制
-TABLE_FWD_DIST = 155         # 穿過桌底向前距離 (cm) (規格為 150cm)
+TABLE_FWD_DIST = 240         # 穿過桌底向前距離 (cm) (規格為 150cm)
 TABLE_CW_DEG = 90            # 穿出桌底後向右旋轉角度 (度)
 TABLE_UP_DIST = 85           # 旋轉後上升找 ID 4 的高度 (cm)
 
@@ -564,10 +564,13 @@ def main():
                         x_tolerance = 8.0
                         yaw_tolerance = 8.0
 
+                        ## 原本180-yaw_deg的寫法會讓tolerance不成立
+                        yaw_diff = (yaw_deg - 180 + 180) % 360 -180
+
                         is_in_range = (
                             (abs(z_err) <= z_tolerance) and 
                             (abs(x_err) <= x_tolerance) and 
-                            (abs(yaw_deg) <= yaw_tolerance)
+                            (abs(yaw_diff) <= yaw_tolerance)
                         )
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
                         status_text = f"S8[ID 4 Wall] Dist:{dist_4:.1f}/{ID4_TARGET_DIST}cm ({target_reached_counter}/4)"
@@ -629,10 +632,13 @@ def main():
                         x_tolerance = 8.0
                         yaw_tolerance = 8.0
 
+                        ## 原本180-yaw_deg的寫法會讓tolerance不成立
+                        yaw_diff = (yaw_deg - 180 + 180) % 360 -180
+
                         is_in_range = (
                             (abs(z_err) <= z_tolerance) and 
                             (abs(x_err) <= x_tolerance) and 
-                            (abs(yaw_deg) <= yaw_tolerance)
+                            (abs(yaw_diff) <= yaw_tolerance)
                         )
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
                         status_text = f"S10[ID 5 Land] Dist:{dist_5:.1f}/{ID5_TARGET_DIST}cm ({target_reached_counter}/4)"
