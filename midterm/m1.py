@@ -34,13 +34,13 @@ TABLE_UP_DIST = 85           # 旋轉後上升找 ID 4 的高度 (cm)
 # 第四段參數 (ID 4 -> 越過板子上方 -> 找 ID 5)
 SCAN_ID4_UP_SPEED = 32      # 向上尋找 ID 4 的速度
 SCAN_ID4_BACK_SPEED = -12    # 向上尋找 ID 4 時向後擴展視野的速度
-ID4_TARGET_DIST = 50.0      # 與牆上 ID 4 保持的距離 (cm)
+ID4_TARGET_DIST = 80.0      # 與牆上 ID 4 保持的距離 (cm)
 OVER_BOARD_UP_DIST = 0      # 對準 ID 4 後額外微幅上升高度，確保能從上方越過板子 (cm)
-BACK_FROM_ID4_DIST = 30      # 對準 ID 4 後向後距離，拓展視野方便尋找 ID 5
+BACK_FROM_ID4_DIST = 0      # 對準 ID 4 後向後距離，拓展視野方便尋找 ID 5
 SCAN_ID5_LEFT_SPEED = -32    # 越過板子上方往左找 ID 5 的水平速度
 
 # 第五段參數 (ID 5 後退至 150cm 降落桌上)
-ID5_TARGET_DIST = 50.0        # 與牆上 ID 5 保持的距離 (cm)
+ID5_TARGET_DIST = 80.0        # 與牆上 ID 5 保持的距離 (cm)
 DESIRED_LAND_DIST = 150.0     # 桌面中心距離牆壁 ID 5 的實際距離 (cm)
 
 # ==========================================
