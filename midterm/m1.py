@@ -29,7 +29,7 @@ ID3_TARGET_DIST = 80.0       # 在桌前對準 ID 3 的準備鑽桌距離 (cm)
 TABLE_DOWN_DIST = 55         # 鑽桌子下降高度 (cm) - 注意 Tello 最低離地限制
 TABLE_FWD_DIST = ID3_TARGET_DIST + 200 # 穿過桌底向前距離 (cm) (規格為 150cm，實際上是 200cm)
 TABLE_CW_DEG = 90            # 穿出桌底後向右旋轉角度 (度)
-TABLE_BACK_DIST = 20           # 旋轉後先往後方便找 ID 4 (cm)
+TABLE_BACK_DIST = 80           # 旋轉後先往後方便找 ID 4 (cm)
 TABLE_UP_DIST = 125           # 旋轉後上升找 ID 4 的高度 (cm)
 
 # 第四段參數 (ID 4 -> 越過板子上方 -> 找 ID 5)
@@ -515,7 +515,7 @@ def main():
                         # 參數設定的重點是 ID3_TARGET_DIST, x_tolerance, z_tolerance, yaw_tolerance 必須彼此搭配，確保可以正對到 ID 3
                         z_tolerance = 15.0   # 深度容許範圍
                         x_tolerance = 15.0   # 水平對齊必須嚴格 (± 8cm 確保進洞居中)
-                        yaw_tolerance = 15 # 航向必須正對 (± 8度 避免盲飛撞桌腳)
+                        yaw_tolerance = 10 # 航向必須正對 (± 8度 避免盲飛撞桌腳)
                         ## 原本180-yaw_deg的寫法會讓tolerance不成立
                         yaw_diff = (yaw_deg - 180 + 180) % 360 -180
 
