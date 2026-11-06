@@ -27,22 +27,22 @@ ID3_HANDOFF_DIST = 170.0     # 當看到 ID 3 且距離小於此值時，自動�
 # 第三段參數 (ID 3 鑽桌子 -> 轉向找 ID 4)
 ID3_TARGET_DIST = 80.0       # 在桌前對準 ID 3 的準備鑽桌距離 (cm)
 TABLE_DOWN_DIST = 55         # 鑽桌子下降高度 (cm) - 注意 Tello 最低離地限制
-TABLE_FWD_DIST = ID3_TARGET_DIST + 200 # 穿過桌底向前距離 (cm) (規格為 150cm，實際上是 200cm)
+TABLE_FWD_DIST = ID3_TARGET_DIST + 180 # 穿過桌底向前距離 (cm) (規格為 150cm，實際上是 200cm)
 TABLE_CW_DEG = 90            # 穿出桌底後向右旋轉角度 (度)
-TABLE_BACK_DIST = 80           # 旋轉後先往後方便找 ID 4 (cm)
-TABLE_UP_DIST = 125           # 旋轉後上升找 ID 4 的高度 (cm)
+TABLE_BACK_DIST = 50           # 旋轉後先往後方便找 ID 4 (cm)
+TABLE_UP_DIST = 135           # 旋轉後上升找 ID 4 的高度 (cm)
 
 # 第四段參數 (ID 4 -> 越過板子上方 -> 找 ID 5)
-SCAN_ID4_UP_SPEED = 32      # 向上尋找 ID 4 的速度
+SCAN_ID4_UP_SPEED = 20      # 向上尋找 ID 4 的速度
 SCAN_ID4_BACK_SPEED = -12    # 向上尋找 ID 4 時向後擴展視野的速度
 ID4_TARGET_DIST = 80.0      # 與牆上 ID 4 保持的距離 (cm)
 OVER_BOARD_UP_DIST = 0      # 對準 ID 4 後額外微幅上升高度，確保能從上方越過板子 (cm)
 BACK_FROM_ID4_DIST = 0      # 對準 ID 4 後向後距離，拓展視野方便尋找 ID 5
-SCAN_ID5_LEFT_SPEED = -32    # 越過板子上方往左找 ID 5 的水平速度
+SCAN_ID5_LEFT_SPEED = -20    # 越過板子上方往左找 ID 5 的水平速度
 
 # 第五段參數 (ID 5 後退至 150cm 降落桌上)
 ID5_TARGET_DIST = 80.0        # 與牆上 ID 5 保持的距離 (cm)
-DESIRED_LAND_DIST = 150.0     # 桌面中心距離牆壁 ID 5 的實際距離 (cm)
+DESIRED_LAND_DIST = 160.0     # 桌面中心距離牆壁 ID 5 的實際距離 (cm)
 
 # ==========================================
 # 狀態機定義
@@ -522,7 +522,7 @@ def main():
 
                         is_in_range = (abs(z_err) <= z_tolerance) and (abs(x_err) <= x_tolerance) and (abs(yaw_diff) <= yaw_tolerance)
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
-                        status_text = f"S6[ID 3 Table] Dist:{dist_3:.1f}/{ID3_TARGET_DIST}cm ({target_reached_counter}/4)"
+                        status_text = f"S6[ID 3 Table] Dist:{dist_3:.1f}/{ID3_TARGET_DIST}cm ({target_reached_counter}/8)"
 
                         if is_flying and target_reached_counter >= 8:
                             target_reached_counter = 0
@@ -580,9 +580,9 @@ def main():
                             (abs(yaw_diff) <= yaw_tolerance)
                         )
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
-                        status_text = f"S8[ID 4 Wall] Dist:{dist_4:.1f}/{ID4_TARGET_DIST}cm ({target_reached_counter}/4)"
+                        status_text = f"S8[ID 4 Wall] Dist:{dist_4:.1f}/{ID4_TARGET_DIST}cm ({target_reached_counter}/8)"
 
-                        if is_flying and target_reached_counter >= 4:
+                        if is_flying and target_reached_counter >= 8:
                             target_reached_counter = 0
                             # 清空 PID，避免前次推進動量帶入下一個動作
                             x_pid.reset()
@@ -648,9 +648,9 @@ def main():
                             (abs(yaw_diff) <= yaw_tolerance)
                         )
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
-                        status_text = f"S10[ID 5 Land] Dist:{dist_5:.1f}/{ID5_TARGET_DIST}cm ({target_reached_counter}/4)"
+                        status_text = f"S10[ID 5 Land] Dist:{dist_5:.1f}/{ID5_TARGET_DIST}cm ({target_reached_counter}/8)"
 
-                        if is_flying and target_reached_counter >= 4:
+                        if is_flying and target_reached_counter >= 8:
                             target_reached_counter = 0
                             current_state = 11  # 立即切換，防止下一幀又重複觸發
                             
