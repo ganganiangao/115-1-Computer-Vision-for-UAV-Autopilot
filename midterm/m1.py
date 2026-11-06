@@ -25,7 +25,7 @@ ID0_FOLLOW_DIST = 75.0       # 跟隨手持 ID 0 的保持距離 (cm)
 ID3_HANDOFF_DIST = 230.0     # 當看到 ID 3 且距離小於此值時，自動脫離 ID 0 切入第三段
 
 # 第三段參數 (ID 3 鑽桌子 -> 轉向找 ID 4)
-ID3_TARGET_DIST = 90.0       # 在桌前對準 ID 3 的準備鑽桌距離 (cm)
+ID3_TARGET_DIST = 50.0       # 在桌前對準 ID 3 的準備鑽桌距離 (cm)
 TABLE_DOWN_DIST = 55         # 鑽桌子下降高度 (cm) - 注意 Tello 最低離地限制
 TABLE_FWD_DIST = 155         # 穿過桌底向前距離 (cm) (規格為 150cm)
 TABLE_CW_DEG = 90            # 穿出桌底後向右旋轉角度 (度)
