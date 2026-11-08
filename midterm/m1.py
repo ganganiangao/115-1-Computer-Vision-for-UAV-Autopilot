@@ -30,7 +30,14 @@ from djitellopy import Tello
 
 # 還是跟太遠、跟不上：把 z_follow_pid 的 ki 往上調到 0.12～0.15，或把 i_max 調大。
 # 人停下來後無人機衝過頭、前後晃：把 ki 調小到 0.04，或把 i_max 調小。
+# 到位後還一直抖：調大 deadband，或調小 min_output。
+# 停在差一點的地方不動：調大 min_output。
+# 反應太慢、太溫吞：調大 max_output，或調大 kp。
+# 衝過頭：調小 max_output；如果是 State 5，也可以調小 i_max。
 
+# IMPORTANT
+
+# deadband 一定要小於各 state 的容許範圍（目前 x／z 是 ±15 cm，yaw 是 ±15°）。否則無人機可能停在容許範圍外、又已經在死區內不再推，到位計數器就永遠累積不上去。
 
 
 
