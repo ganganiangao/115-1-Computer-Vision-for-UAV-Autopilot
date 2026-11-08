@@ -291,7 +291,7 @@ def get_marker_pose(corners, ids, target_id, marker_length, intrinsic, distortio
 
     R, _ = cv2.Rodrigues(rvec)
     Z_prime = np.dot(R, np.array([0, 0, 1]))
-    yaw_deg = math.degrees(math.atan2(Z_prime[0], Z_prime[2]))
+    yaw_deg = math.degrees(math.atan2(Z_prime[0], -Z_prime[2]))
 
     # 回傳是否找到目標（True/False），
     # 以及繪圖與 PID 所需的 4 個直接控制變數：
@@ -534,10 +534,8 @@ def main():
                         z_tolerance = 15.0   # 深度容許範圍
                         x_tolerance = 15.0   # 水平對齊必須嚴格 (± 8cm 確保進洞居中)
                         yaw_tolerance = 15 # 航向必須正對 (± 8度 避免盲飛撞桌腳)
-                        ## 原本180-yaw_deg的寫法會讓tolerance不成立
-                        yaw_diff = (yaw_deg - 180 + 180) % 360 -180
 
-                        is_in_range = (abs(z_err) <= z_tolerance) and (abs(x_err) <= x_tolerance) and (abs(yaw_diff) <= yaw_tolerance)
+                        is_in_range = (abs(z_err) <= z_tolerance) and (abs(x_err) <= x_tolerance) and (abs(yaw_deg) <= yaw_tolerance)
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
                         status_text = f"S6[ID 3 Table] Dist:{dist_3:.1f}/{ID3_TARGET_DIST}cm ({target_reached_counter}/15)"
 
@@ -588,13 +586,11 @@ def main():
                         x_tolerance = 15.0
                         yaw_tolerance = 15.0
 
-                        ## 原本180-yaw_deg的寫法會讓tolerance不成立
-                        yaw_diff = (yaw_deg - 180 + 180) % 360 -180
 
                         is_in_range = (
                             (abs(z_err) <= z_tolerance) and 
                             (abs(x_err) <= x_tolerance) and 
-                            (abs(yaw_diff) <= yaw_tolerance)
+                            (abs(yaw_deg) <= yaw_tolerance)
                         )
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
                         status_text = f"S8[ID 4 Wall] Dist:{dist_4:.1f}/{ID4_TARGET_DIST}cm ({target_reached_counter}/15)"
@@ -656,13 +652,11 @@ def main():
                         x_tolerance = 15.0
                         yaw_tolerance = 15.0
 
-                        ## 原本180-yaw_deg的寫法會讓tolerance不成立
-                        yaw_diff = (yaw_deg - 180 + 180) % 360 -180
 
                         is_in_range = (
                             (abs(z_err) <= z_tolerance) and 
                             (abs(x_err) <= x_tolerance) and 
-                            (abs(yaw_diff) <= yaw_tolerance)
+                            (abs(yaw_deg) <= yaw_tolerance)
                         )
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
                         status_text = f"S10[ID 5 Land] Dist:{dist_5:.1f}/{ID5_TARGET_DIST}cm ({target_reached_counter}/23)"
