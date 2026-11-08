@@ -7,6 +7,40 @@ import logging
 import threading
 from djitellopy import Tello
 
+
+
+
+# 大致是這樣：狀態機流程沒動，狀態順序、各關的目標距離、容許範圍、到位要幾幀、每段複合動作的內容都和原本一樣。不過嚴格來說，有幾處控制行為確實變了，列給你確認：
+
+# 有改到行為的地方
+
+# State 5 跟隨 ID 0 時怎麼轉向：原本是 yaw_deg + x_err*0.35，現在改成追 marker 所在的方位角 -atan2(x_err, dist_0)。這是跟隨方式的改變，不只是調參數。原本那一項被 ±180° 蓋過去，x 那一項的符號也是反的。
+# SimplePID 內部：誤差小於 deadband 會直接輸出 0（原本只要誤差大於 3 就至少推 12～15）；重置後的第一幀不算微分；微分項多了濾波。
+# yaw 的算法：從源頭改成正對時約 0°，PID 和容許範圍判斷都改用這個值。
+# 偵測：多加了 CORNER_REFINE_SUBPIX。
+
+# 順手修的小 bug（不影響流程）
+
+# 啟動動作 thread 之前就先設 is_executing_maneuver = True，避免主迴圈在動作開始前又送一次 RC 指令。
+# 刪掉 continue 前那行沒作用的 fwd_speed = 32，原本就不會送出去。
+# 降落那段明確傳 next_state=11，原本會變成 12。不過兩個值都只是讓主迴圈停止送 RC，實際上沒差。
+
+# 參數：PID 加了 deadband，yaw_pid 的 kp 從 0.35 調到 0.8，min_output 從 12 調到 10。x／y／z 的 kp、kd、上限都沒動，賽道參數區（ID1_TARGET_DIST 那一塊）完全沒碰。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # 抑制 djitellopy 發送 RC 指令時的終端機洗版 log
 logging.getLogger("djitellopy").setLevel(logging.WARNING)
 
