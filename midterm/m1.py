@@ -6,7 +6,7 @@ import math
 import logging
 import threading
 from djitellopy import Tello
-#wojqoijoqwiejoiqwrjorqwjoqjro
+
 # 抑制 djitellopy 發送 RC 指令時的終端機洗版 log
 logging.getLogger("djitellopy").setLevel(logging.WARNING)
 
@@ -22,26 +22,27 @@ SCAN_ID0_LEFT_SPEED = -28    # 持續往左找 ID 0 的水平速度 (-100~100)
 
 # 第二段參數 (手持 ID 0)
 ID0_FOLLOW_DIST = 75.0       # 跟隨手持 ID 0 的保持距離 (cm)
-ID3_HANDOFF_DIST = 150.0     # 當看到 ID 3 且距離小於此值時，自動脫離 ID 0 切入第三段
+ID3_HANDOFF_DIST = 170.0     # 當看到 ID 3 且距離小於此值時，自動脫離 ID 0 切入第三段
 
 # 第三段參數 (ID 3 鑽桌子 -> 轉向找 ID 4)
-ID3_TARGET_DIST = 50.0       # 在桌前對準 ID 3 的準備鑽桌距離 (cm)
+ID3_TARGET_DIST = 80.0       # 在桌前對準 ID 3 的準備鑽桌距離 (cm)
 TABLE_DOWN_DIST = 55         # 鑽桌子下降高度 (cm) - 注意 Tello 最低離地限制
-TABLE_FWD_DIST = 155         # 穿過桌底向前距離 (cm) (規格為 150cm)
+TABLE_FWD_DIST = ID3_TARGET_DIST + 180 # 穿過桌底向前距離 (cm) (規格為 150cm，實際上是 200cm)
 TABLE_CW_DEG = 90            # 穿出桌底後向右旋轉角度 (度)
-TABLE_UP_DIST = 85           # 旋轉後上升找 ID 4 的高度 (cm)
+TABLE_BACK_DIST = 50           # 旋轉後先往後方便找 ID 4 (cm)
+TABLE_UP_DIST = 135           # 旋轉後上升找 ID 4 的高度 (cm)
 
 # 第四段參數 (ID 4 -> 越過板子上方 -> 找 ID 5)
-SCAN_ID4_UP_SPEED = 32      # 向上尋找 ID 4 的速度
-SCAN_ID4_BACK_SPEED = 0    # 向上尋找 ID 4 時向後擴展視野的速度
-ID4_TARGET_DIST = 50.0      # 與牆上 ID 4 保持的距離 (cm)
+SCAN_ID4_UP_SPEED = 20      # 向上尋找 ID 4 的速度
+SCAN_ID4_BACK_SPEED = -12    # 向上尋找 ID 4 時向後擴展視野的速度
+ID4_TARGET_DIST = 80.0      # 與牆上 ID 4 保持的距離 (cm)
 OVER_BOARD_UP_DIST = 0      # 對準 ID 4 後額外微幅上升高度，確保能從上方越過板子 (cm)
 BACK_FROM_ID4_DIST = 30      # 對準 ID 4 後向後距離，拓展視野方便尋找 ID 5
-SCAN_ID5_LEFT_SPEED = -32    # 越過板子上方往左找 ID 5 的水平速度
+SCAN_ID5_LEFT_SPEED = -20    # 越過板子上方往左找 ID 5 的水平速度
 
 # 第五段參數 (ID 5 後退至 150cm 降落桌上)
-ID5_TARGET_DIST = 50.0        # 與牆上 ID 4 保持的距離 (cm)
-DESIRED_LAND_DIST = 150.0     # 桌面中心距離牆壁 ID 5 的實際距離 (cm)
+ID5_TARGET_DIST = 80.0        # 與牆上 ID 5 保持的距離 (cm)
+DESIRED_LAND_DIST = 155.0     # 桌面中心距離牆壁 ID 5 的實際距離 (cm)
 
 # ==========================================
 # 狀態機定義
@@ -52,11 +53,11 @@ DESIRED_LAND_DIST = 150.0     # 桌面中心距離牆壁 ID 5 的實際距離 (c
 # 3: 逼近 ID 2 至 115cm & 左移 60cm 脫離板子(Maneuver)
 # 4: 持續掃描 ID 0
 # 5: 跟隨手持 ID 0 繞椅子 (若同時看到 ID 3 進入範圍則自動切換至 State 6)
-# 6: 對準桌子上的 ID 3 (距離 90cm)
-# 7: 執行鑽桌子與旋轉上升複合動作 (Maneuver: 下 -> 前 150 -> 右轉 90 -> 上)
-# 8: 對準並逼近牆面 ID 4 至 50cm，到位後後退 30cm 拓展視野 (Maneuver) + 可能要先向上跨越板子 (Maneuver)
+# 6: 對準桌子上的 ID 3 (距離 80cm)
+# 7: 執行鑽桌子與旋轉上升複合動作 (Maneuver: 下 -> 前 dist_3 + 200 -> 右轉 90 -> 上)
+# 8: 對準並逼近牆面 ID 4 至 80cm，到位後後退 30cm 拓展視野 (Maneuver) + 可能要先向上跨越板子 (Maneuver)
 # 9: 持續向左水平移動直到看見 ID 5  註記：先測試看看單純向左可不可以找到 ID 5 如果不行就要向後擴大視野
-# 10: 對準 ID 5 並後退至距離 150cm (桌子正上方)
+# 10: 對準 ID 5 (距離 80 cm) 並後退至距離 150cm (桌子正上方)
 # 11: 降落於桌上，賽道完成
 
 is_flying = False
@@ -65,43 +66,51 @@ is_executing_maneuver = False
 
 """ 輕量且具備最低死區補償的 PID 控制器"""
 class SimplePID:  
-    def __init__(self, kp, ki, kd, min_output=12, max_output=28):
+    def __init__(self, kp, ki, kd, min_output=12, max_output=28, deadband=5.0, d_alpha=0.3):
         self.kp = kp
         self.ki = ki
         self.kd = kd
         self.min_output = min_output
         self.max_output = max_output
-        self.prev_error = 0.0
-        self.integral = 0.0
-        self.prev_time = time.time()
+        self.deadband = deadband      # 誤差小於此值視為到位 → 輸出 0（必須小於各 state 的 tolerance，否則會在容許範圍內持續被推而過衝）
+        self.d_alpha = d_alpha        # 微分項低通濾波係數 (0~1，越小越平滑)，抑制 ArUco 距離/角度雜訊被放大
+        self.reset()
 
     # 在成功轉入下一個狀態時（例如看到 ID 0、ID 3 或 ID 5），執行 .reset() 清空內部累積狀態，確保前一個動作的慣性不干擾新動作
     def reset(self):
         self.prev_error = 0.0
         self.integral = 0.0
+        self.d_filt = 0.0
+        self.first = True
         self.prev_time = time.time()
 
     def update(self, error, custom_max=None):
         current_time = time.time()
-        dt = current_time - self.prev_time
-        if dt <= 0.001:
-            dt = 0.001
+        dt = max(current_time - self.prev_time, 0.001)
+        self.prev_time = current_time
+
+        # 第一次更新 或 丟失目標超過 0.5 秒後重新看到：不計算微分，避免 derivative kick (第一幀 error/dt 暴衝)
+        if self.first or dt > 0.5:
+            self.first = False
+            self.d_filt = 0.0
+        else:
+            raw_d = (error - self.prev_error) / dt
+            self.d_filt = self.d_alpha * raw_d + (1 - self.d_alpha) * self.d_filt
+        self.prev_error = error
+
+        # 死區：已到位就不再推，讓無人機穩定停在容許範圍內
+        if abs(error) <= self.deadband:
+            return 0
 
         self.integral += error * dt
         # 限制積分飽和
         self.integral = max(-50.0, min(50.0, self.integral))
-        derivative = (error - self.prev_error) / dt
 
-        output = (self.kp * error) + (self.ki * self.integral) + (self.kd * derivative)
+        output = (self.kp * error) + (self.ki * self.integral) + (self.kd * self.d_filt)
 
-        self.prev_error = error
-        self.prev_time = current_time
-
-        if abs(error) > 3.0:
-            if 0 < output < self.min_output:
-                output = self.min_output
-            elif -self.min_output < output < 0:
-                output = -self.min_output
+        # 最低輸出補償 (克服 Tello 小速度指令無反應的死區)
+        if 0 < abs(output) < self.min_output:
+            output = math.copysign(self.min_output, output)
 
         max_lim = custom_max if custom_max is not None else self.max_output
         return int(max(-max_lim, min(max_lim, output)))
@@ -275,7 +284,10 @@ def get_marker_pose(corners, ids, target_id, marker_length, intrinsic, distortio
 
     R, _ = cv2.Rodrigues(rvec)
     Z_prime = np.dot(R, np.array([0, 0, 1]))
-    yaw_deg = math.degrees(math.atan2(Z_prime[0], Z_prime[2]))
+    # ArUco 的 Z 軸由 marker 指向鏡頭，正對時 Z_prime ≈ (0, 0, -1)
+    # 原本 atan2(Z[0], Z[2]) 正對時 ≈ ±180°，導致 yaw PID 永遠飽和 (bang-bang 抖動)
+    # 改為 atan2(Z[0], -Z[2])：正對時 ≈ 0°，機頭偏右 (cw) 為正
+    yaw_deg = math.degrees(math.atan2(Z_prime[0], -Z_prime[2]))
 
     # 回傳是否找到目標（True/False），
     # 以及繪圖與 PID 所需的 4 個直接控制變數：
@@ -296,10 +308,12 @@ def main():
         return
 
     # PID 控制器 (微調提高上限以加快賽道收斂速度)
-    x_pid = SimplePID(kp=0.38, ki=0.0, kd=0.06, min_output=12, max_output=28)
-    y_pid = SimplePID(kp=0.48, ki=0.0, kd=0.05, min_output=15, max_output=28)
-    z_pid = SimplePID(kp=0.40, ki=0.0, kd=0.06, min_output=15, max_output=35)
-    yaw_pid = SimplePID(kp=0.35, ki=0.0, kd=0.05, min_output=12, max_output=30)
+    # deadband 需小於各 state 的 tolerance (目前 x/z ±15cm、yaw ±15°)
+    x_pid = SimplePID(kp=0.38, ki=0.0, kd=0.06, min_output=12, max_output=28, deadband=5.0)
+    y_pid = SimplePID(kp=0.48, ki=0.0, kd=0.05, min_output=15, max_output=28, deadband=6.0)
+    z_pid = SimplePID(kp=0.40, ki=0.0, kd=0.06, min_output=15, max_output=35, deadband=5.0)
+    # yaw 誤差修正後為小角度 (0 附近)，kp 需調大才有足夠推力
+    yaw_pid = SimplePID(kp=0.8, ki=0.0, kd=0.05, min_output=10, max_output=30, deadband=4.0)
 
     marker_length = 15.0  # cm
     aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
@@ -310,6 +324,8 @@ def main():
     parameters.adaptiveThreshWinSizeMax = 23
     parameters.adaptiveThreshWinSizeStep = 5
     parameters.minMarkerPerimeterRate = 0.015
+    # 次像素角點精修：大幅降低距離與 yaw 的跳動，提升 PID 穩定度
+    parameters.cornerRefinementMethod = aruco.CORNER_REFINE_SUBPIX
 
     drone = Tello()
     drone.connect()
@@ -393,6 +409,7 @@ def main():
                             actual_right_dist = max(min_safe, min(max_safe, actual_right_dist))
                             
                             print(f"[STATE] ID 1 到位！最後偏差 x_err={x_err:.1f}cm | 動態向右避障 {actual_right_dist}cm")
+                            is_executing_maneuver = True  # 先鎖住主迴圈，避免 thread 啟動前又送出 RC 指令干擾 move_xxx
                             threading.Thread(
                                 target=execute_maneuver,
                                 args=(drone, [("right", actual_right_dist)], 3),                                            # <-- 這裡的 3 就是 next_state, i.e. current_state = 3
@@ -435,6 +452,7 @@ def main():
                             actual_left_dist = max(min_safe, min(max_safe, actual_left_dist))
 
                             print(f"[STATE] ID 2 到位！最後偏差 x_err={x_err:.1f}cm，動態向左脫離板子 {actual_left_dist}cm")
+                            is_executing_maneuver = True  # 先鎖住主迴圈，避免 thread 啟動前又送出 RC 指令干擾 move_xxx
                             threading.Thread(
                                 target=execute_maneuver,
                                 args=(drone, [("left", actual_left_dist)], 4),
@@ -489,9 +507,10 @@ def main():
                         lr_speed = x_pid.update(x_err, custom_max=35)
                         up_speed = y_pid.update(y_err, custom_max=28)
                         fwd_speed = z_pid.update(z_err, custom_max=38)
-                        # 手持轉彎時，用橫向誤差輔助 Yaw 轉向，繞椅子更順暢
-                        yaw_combined_err = yaw_deg + (x_err * 0.35)
-                        yaw_speed = yaw_pid.update(yaw_combined_err, custom_max=35)
+                        # 手持 marker 角度不固定，改為追蹤 marker 所在方位角 (bearing)，繞椅子更順暢
+                        # marker 在右 (x_err > 0) → 誤差為負 → 送出 -yaw_speed 為正 → 右轉
+                        yaw_follow_err = -math.degrees(math.atan2(x_err, dist_0))
+                        yaw_speed = yaw_pid.update(yaw_follow_err, custom_max=35)
 
                         status_text = f"S5[Follow ID 0] Dist:{dist_0:.1f}cm (Looking for ID 3)"
                     else:
@@ -514,15 +533,15 @@ def main():
                         # 參數設定的重點是 ID3_TARGET_DIST, x_tolerance, z_tolerance, yaw_tolerance 必須彼此搭配，確保可以正對到 ID 3
                         z_tolerance = 15.0   # 深度容許範圍
                         x_tolerance = 15.0   # 水平對齊必須嚴格 (± 8cm 確保進洞居中)
-                        yaw_tolerance = 30 # 航向必須正對 (± 8度 避免盲飛撞桌腳)
+                        yaw_tolerance = 15 # 航向必須正對 (± 8度 避免盲飛撞桌腳)
                         ## 原本180-yaw_deg的寫法會讓tolerance不成立
-                        yaw_diff = (yaw_deg - 180 + 180) % 360 -180
+                        yaw_diff = yaw_deg  # get_marker_pose 已修正為正對 ≈ 0°
 
                         is_in_range = (abs(z_err) <= z_tolerance) and (abs(x_err) <= x_tolerance) and (abs(yaw_diff) <= yaw_tolerance)
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
-                        status_text = f"S6[ID 3 Table] Dist:{dist_3:.1f}/{ID3_TARGET_DIST}cm ({target_reached_counter}/4)"
+                        status_text = f"S6[ID 3 Table] Dist:{dist_3:.1f}/{ID3_TARGET_DIST}cm ({target_reached_counter}/15)"
 
-                        if is_flying and target_reached_counter >= 4:
+                        if is_flying and target_reached_counter >= 15:
                             target_reached_counter = 0
                             current_state = 7
                             # 鑽桌前重置 PID，消除殘存動量與前次誤差
@@ -531,13 +550,19 @@ def main():
                             z_pid.reset()
                             yaw_pid.reset()
 
+                            # 當 dist_3 = 90 (停得較遠)，z_err = +10 -> 前進 240 + 10 = 250
+                            # 當 dist_3 = 70 (停得較近)，z_err = -10 -> 前進 240 - 10 = 230
+                            actual_fwd_dist = int(round(TABLE_FWD_DIST + z_err))
+
                             print("[STATE] ID 3 對準完成！執行鑽桌子與旋轉爬升動作")
                             table_actions = [
                                 ("down", TABLE_DOWN_DIST),
-                                ("forward", TABLE_FWD_DIST),
+                                ("forward", actual_fwd_dist),
                                 ("cw", TABLE_CW_DEG),
+                                ("back", TABLE_BACK_DIST),
                                 ("up", TABLE_UP_DIST)
                             ]
+                            is_executing_maneuver = True  # 先鎖住主迴圈，避免 thread 啟動前又送出 RC 指令干擾 move_xxx
                             threading.Thread(
                                 target=execute_maneuver,
                                 args=(drone, table_actions, 8),
@@ -560,19 +585,22 @@ def main():
                         fwd_speed = z_pid.update(z_err)
                         yaw_speed = yaw_pid.update(yaw_deg)
 
-                        z_tolerance = 8.0
-                        x_tolerance = 8.0
-                        yaw_tolerance = 8.0
+                        z_tolerance = 15.0
+                        x_tolerance = 15.0
+                        yaw_tolerance = 15.0
+
+                        ## 原本180-yaw_deg的寫法會讓tolerance不成立
+                        yaw_diff = yaw_deg  # get_marker_pose 已修正為正對 ≈ 0°
 
                         is_in_range = (
                             (abs(z_err) <= z_tolerance) and 
                             (abs(x_err) <= x_tolerance) and 
-                            (abs(yaw_deg) <= yaw_tolerance)
+                            (abs(yaw_diff) <= yaw_tolerance)
                         )
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
-                        status_text = f"S8[ID 4 Wall] Dist:{dist_4:.1f}/{ID4_TARGET_DIST}cm ({target_reached_counter}/4)"
+                        status_text = f"S8[ID 4 Wall] Dist:{dist_4:.1f}/{ID4_TARGET_DIST}cm ({target_reached_counter}/15)"
 
-                        if is_flying and target_reached_counter >= 4:
+                        if is_flying and target_reached_counter >= 15:
                             target_reached_counter = 0
                             # 清空 PID，避免前次推進動量帶入下一個動作
                             x_pid.reset()
@@ -582,6 +610,7 @@ def main():
 
                             print("[STATE] ID 4 定位完成！微幅向後並開始向左飛越板子上方")
                             # 為了防止找不到 ID 5 BACK_FROM_ID4_DIST (可設 20~30cm)，再進入 State 9 平移
+                            is_executing_maneuver = True  # 先鎖住主迴圈，避免 thread 啟動前又送出 RC 指令干擾 move_xxx
                             threading.Thread(
                                 target=execute_maneuver,
                                 args=(drone, [("back", BACK_FROM_ID4_DIST), 
@@ -625,19 +654,22 @@ def main():
                         fwd_speed = z_pid.update(z_err)
                         yaw_speed = yaw_pid.update(yaw_deg)
 
-                        z_tolerance = 8.0
-                        x_tolerance = 8.0
-                        yaw_tolerance = 8.0
+                        z_tolerance = 15.0
+                        x_tolerance = 15.0
+                        yaw_tolerance = 15.0
+
+                        ## 原本180-yaw_deg的寫法會讓tolerance不成立
+                        yaw_diff = yaw_deg  # get_marker_pose 已修正為正對 ≈ 0°
 
                         is_in_range = (
                             (abs(z_err) <= z_tolerance) and 
                             (abs(x_err) <= x_tolerance) and 
-                            (abs(yaw_deg) <= yaw_tolerance)
+                            (abs(yaw_diff) <= yaw_tolerance)
                         )
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
-                        status_text = f"S10[ID 5 Land] Dist:{dist_5:.1f}/{ID5_TARGET_DIST}cm ({target_reached_counter}/4)"
+                        status_text = f"S10[ID 5 Land] Dist:{dist_5:.1f}/{ID5_TARGET_DIST}cm ({target_reached_counter}/23)"
 
-                        if is_flying and target_reached_counter >= 4:
+                        if is_flying and target_reached_counter >= 23:
                             target_reached_counter = 0
                             current_state = 11  # 立即切換，防止下一幀又重複觸發
                             
@@ -661,12 +693,13 @@ def main():
 
                             def land_sequence(back_dist):
                                 # 1. 執行精確補償後退
-                                execute_maneuver(drone, [("back", back_dist)])
+                                execute_maneuver(drone, [("back", back_dist)], 11)  # 明確指定 11，避免 current_state += 1 變成 12
                                 # 2. 後退完成，停懸 0.5 秒消除煞車慣性與地面氣流擾動
                                 time.sleep(0.5)
                                 # 3. 垂直落桌 (單次觸發)
                                 async_land(drone)
 
+                            is_executing_maneuver = True
                             threading.Thread(target=land_sequence, args=(actual_back_dist,), daemon=True).start()
                     else:
                         target_reached_counter = max(0, target_reached_counter - 1)
