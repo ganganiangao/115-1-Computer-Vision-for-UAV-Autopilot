@@ -90,7 +90,7 @@ class SimplePID:
 
         self.integral += error * dt
         # 限制積分飽和
-        self.integral = max(-50.0, min(50.0, self.integral))
+        self.integral = max(-50.0, min(50.0, self.integral))        # 將積分量限制在 [-50.0, 50.0]，防止長時間偏位過大時積分累積過深，造成目標對準後無人機仍大幅超調（Overshoot）
         derivative = (error - self.prev_error) / dt
 
         output = (self.kp * error) + (self.ki * self.integral) + (self.kd * derivative)
@@ -98,12 +98,16 @@ class SimplePID:
         self.prev_error = error
         self.prev_time = current_time
 
+        # 當空間誤差大於容忍門檻 abs(error) > 3.0，代表系統明確需要修正位置。
+        # 若此時算出的 PID 輸出小於最低動作速度 0 < output < min_output
+        # 強行將輸出提升至 min_output（正向或負向），確保馬達能產生足夠推力克服靜摩擦力
         if abs(error) > 3.0:
             if 0 < output < self.min_output:
                 output = self.min_output
             elif -self.min_output < output < 0:
                 output = -self.min_output
 
+        # 將速度夾在 [-max_lim, max_lim] 之間
         max_lim = custom_max if custom_max is not None else self.max_output
         return int(max(-max_lim, min(max_lim, output)))
 
