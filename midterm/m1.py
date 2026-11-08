@@ -64,7 +64,7 @@ is_flying = False
 current_state = 0
 is_executing_maneuver = False
 
-""" 輕量且具備最低死區補償的 PID 控制器"""
+""" 輕量、具備最低死區補償與量測值微分 (Derivative on Measurement) 的 PID 控制器 """
 class SimplePID:  
     def __init__(self, kp, ki, kd, min_output=12, max_output=28):
         self.kp = kp
@@ -72,32 +72,41 @@ class SimplePID:
         self.kd = kd
         self.min_output = min_output
         self.max_output = max_output
-        self.prev_error = 0.0
+        self.prev_measurement = None  # 記錄前一次的物理量測值
         self.integral = 0.0
         self.prev_time = time.time()
 
     # 在成功轉入下一個狀態時（例如看到 ID 0、ID 3 或 ID 5），執行 .reset() 清空內部累積狀態，確保前一個動作的慣性不干擾新動作
     def reset(self):
-        self.prev_error = 0.0
+        """狀態切換時清空內部狀態，第一幀不產生任何微分突衝"""
+        self.prev_measurement = None
         self.integral = 0.0
         self.prev_time = time.time()
 
-    def update(self, error, custom_max=None):
+    def update(self, error, measurement=None, custom_max=None):
         current_time = time.time()
         dt = current_time - self.prev_time
         if dt <= 0.001:
             dt = 0.001
 
+        # 1. 積分計算與抗飽和 (Anti-Windup) 限制積分範圍在 [-50, 50]
         self.integral += error * dt
-        # 限制積分飽和
-        self.integral = max(-50.0, min(50.0, self.integral))        # 將積分量限制在 [-50.0, 50.0]，防止長時間偏位過大時積分累積過深，造成目標對準後無人機仍大幅超調（Overshoot）
-        derivative = (error - self.prev_error) / dt
+        self.integral = max(-50.0, min(50.0, self.integral))
 
-        output = (self.kp * error) + (self.ki * self.integral) + (self.kd * derivative)
+        # 2. 微分項：對量測值微分 (Derivative on Measurement)
+        # 取負號是因為：當量測值增加時，誤差減小，阻尼需產生反向推力抑制速度
+        if self.prev_measurement is None:
+            derivative = 0.0  # 第一幀或 reset 後平滑啟動，消除 Derivative Kick
+        else:
+            derivative = -(measurement - self.prev_measurement) / dt
 
-        self.prev_error = error
+        self.prev_measurement = measurement
         self.prev_time = current_time
 
+        # 3. PID 輸出計算
+        output = (self.kp * error) + (self.ki * self.integral) + (self.kd * derivative)
+
+        # 4. 最低死區補償 (Deadband Compensation)
         # 當空間誤差大於容忍門檻 abs(error) > 3.0，代表系統明確需要修正位置。
         # 若此時算出的 PID 輸出小於最低動作速度 0 < output < min_output
         # 強行將輸出提升至 min_output（正向或負向），確保馬達能產生足夠推力克服靜摩擦力
@@ -107,7 +116,7 @@ class SimplePID:
             elif -self.min_output < output < 0:
                 output = -self.min_output
 
-        # 將速度夾在 [-max_lim, max_lim] 之間
+        # 5. 輸出上限限制與型別轉換
         max_lim = custom_max if custom_max is not None else self.max_output
         return int(max(-max_lim, min(max_lim, output)))
 
@@ -371,10 +380,11 @@ def main():
 
                         aruco.drawAxis(display_frame, intrinsic, distortion, rvec, tvec, 10)
                         z_err = dist - ID1_TARGET_DIST                                          # 誤差計算：前後目標是 50cm，因此深度誤差為 z_err = dist - 50.0
-                        lr_speed = x_pid.update(x_err)                                          # PID 四軸聯動：將 4 個誤差丟給對應的 PID
-                        up_speed = y_pid.update(y_err)                                          # 算出此幀的左右平移速度（lr_speed）、升降速度（up_speed）、前進速度（fwd_speed）與自轉速度（yaw_speed）
-                        fwd_speed = z_pid.update(z_err)
-                        yaw_speed = yaw_pid.update(yaw_deg)
+                        # 改為同時傳入 error 與 實際量測值
+                        lr_speed = x_pid.update(x_err, measurement=x_err)                       # PID 四軸聯動：將 4 個誤差丟給對應的 PID
+                        up_speed = y_pid.update(y_err, measurement=y_err)                       # 算出此幀的左右平移速度（lr_speed）、升降速度（up_speed）、前進速度（fwd_speed）與自轉速度（yaw_speed）
+                        fwd_speed = z_pid.update(z_err, measurement=dist)
+                        yaw_speed = yaw_pid.update(yaw_deg, measurement=yaw_deg)
 
                         z_tolerance = 7.5
                         x_tolerance = 15.0
@@ -415,10 +425,10 @@ def main():
                     if found:
                         aruco.drawAxis(display_frame, intrinsic, distortion, rvec, tvec, 10)
                         z_err = dist - ID2_TARGET_DIST
-                        lr_speed = x_pid.update(x_err)
-                        up_speed = y_pid.update(y_err)
-                        fwd_speed = z_pid.update(z_err)
-                        yaw_speed = yaw_pid.update(yaw_deg)
+                        lr_speed = x_pid.update(x_err, measurement=x_err)
+                        up_speed = y_pid.update(y_err, measurement=y_err)
+                        fwd_speed = z_pid.update(z_err, measurement=dist)
+                        yaw_speed = yaw_pid.update(yaw_deg, measurement=yaw_deg)
 
                         x_tolerance = 15
                         z_tolerance = 10.0  # 深度容許公差 ±10cm (範圍 105 ~ 125 cm)
@@ -492,12 +502,13 @@ def main():
                         z_err = dist_0 - ID0_FOLLOW_DIST
 
                         # 跟隨手持 Marker 時放大推力上限，讓無人機能緊跟人的步伐與轉彎
-                        lr_speed = x_pid.update(x_err, custom_max=35)
-                        up_speed = y_pid.update(y_err, custom_max=28)
-                        fwd_speed = z_pid.update(z_err, custom_max=38)
+                        lr_speed = x_pid.update(x_err, measurement=x_err, custom_max=35)
+                        up_speed = y_pid.update(y_err, measurement=y_err, custom_max=28)
+                        # ★★★ 關鍵修改：前後軸帶入 measurement=dist_0，避免手持晃動產生微分突衝 ★★★
+                        fwd_speed = z_pid.update(z_err, measurement=dist_0, custom_max=38)
                         # 手持轉彎時，用橫向誤差輔助 Yaw 轉向，繞椅子更順暢
                         yaw_combined_err = yaw_deg + (x_err * 0.35)
-                        yaw_speed = yaw_pid.update(yaw_combined_err, custom_max=35)
+                        yaw_speed = yaw_pid.update(yaw_combined_err, measurement=yaw_deg, custom_max=35)
 
                         status_text = f"S5[Follow ID 0] Dist:{dist_0:.1f}cm (Looking for ID 3)"
                     else:
@@ -512,10 +523,10 @@ def main():
                     if found_3:
                         aruco.drawAxis(display_frame, intrinsic, distortion, rvec, tvec, 10)
                         z_err = dist_3 - ID3_TARGET_DIST
-                        lr_speed = x_pid.update(x_err)
-                        up_speed = y_pid.update(y_err)
-                        fwd_speed = z_pid.update(z_err)
-                        yaw_speed = yaw_pid.update(yaw_deg)
+                        lr_speed = x_pid.update(x_err, measurement=x_err)
+                        up_speed = y_pid.update(y_err, measurement=y_err)
+                        fwd_speed = z_pid.update(z_err, measurement=dist_3)
+                        yaw_speed = yaw_pid.update(yaw_deg, measurement=yaw_deg)
 
                         # 參數設定的重點是 ID3_TARGET_DIST, x_tolerance, z_tolerance, yaw_tolerance 必須彼此搭配，確保可以正對到 ID 3
                         z_tolerance = 15.0   # 深度容許範圍
@@ -566,10 +577,10 @@ def main():
                     if found_4:
                         aruco.drawAxis(display_frame, intrinsic, distortion, rvec, tvec, 10)
                         z_err = dist_4 - ID4_TARGET_DIST
-                        lr_speed = x_pid.update(x_err)
-                        up_speed = y_pid.update(y_err)
-                        fwd_speed = z_pid.update(z_err)
-                        yaw_speed = yaw_pid.update(yaw_deg)
+                        lr_speed = x_pid.update(x_err, measurement=x_err)
+                        up_speed = y_pid.update(y_err, measurement=y_err)
+                        fwd_speed = z_pid.update(z_err, measurement=dist_4)
+                        yaw_speed = yaw_pid.update(yaw_deg, measurement=yaw_deg)
 
                         z_tolerance = 15.0
                         x_tolerance = 15.0
@@ -634,10 +645,10 @@ def main():
                     if found_5:
                         aruco.drawAxis(display_frame, intrinsic, distortion, rvec, tvec, 10)
                         z_err = dist_5 - ID5_TARGET_DIST
-                        lr_speed = x_pid.update(x_err)
-                        up_speed = y_pid.update(y_err)
-                        fwd_speed = z_pid.update(z_err)
-                        yaw_speed = yaw_pid.update(yaw_deg)
+                        lr_speed = x_pid.update(x_err, measurement=x_err)
+                        up_speed = y_pid.update(y_err, measurement=y_err)
+                        fwd_speed = z_pid.update(z_err, measurement=dist_5)
+                        yaw_speed = yaw_pid.update(yaw_deg, measurement=yaw_deg)
 
                         z_tolerance = 15.0
                         x_tolerance = 15.0
