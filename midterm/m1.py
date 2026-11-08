@@ -268,6 +268,8 @@ def get_marker_pose(corners, ids, target_id, marker_length, intrinsic, distortio
         return False, None, None, 0.0, 0.0, 0.0, 0.0
 
     idx = list(flat_ids).index(target_id)
+    # rvec（旋轉向量陣列 Rotation Vector）形狀為 (N, 1, 3)，（N 為畫面中成功辨識出的 Marker 數量）
+    # tvecs（平移向量陣列 Translation Vectors）
     rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(
         corners, marker_length, intrinsic, distortion
     )
