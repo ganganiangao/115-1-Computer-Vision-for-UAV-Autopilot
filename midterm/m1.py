@@ -100,7 +100,7 @@ is_executing_maneuver = False
 
 """ 輕量且具備最低死區補償的 PID 控制器"""
 class SimplePID:  
-    def __init__(self, kp, ki, kd, min_output=12, max_output=28, deadband=5.0, d_alpha=0.3):
+    def __init__(self, kp, ki, kd, min_output=12, max_output=28, deadband=5.0, d_alpha=0.3, i_max=10.0):
         self.kp = kp
         self.ki = ki
         self.kd = kd
@@ -108,6 +108,7 @@ class SimplePID:
         self.max_output = max_output
         self.deadband = deadband      # 誤差小於此值視為到位 → 輸出 0（必須小於各 state 的 tolerance，否則會在容許範圍內持續被推而過衝）
         self.d_alpha = d_alpha        # 微分項低通濾波係數 (0~1，越小越平滑)，抑制 ArUco 距離/角度雜訊被放大
+        self.i_max = i_max            # I 項最多貢獻的輸出量 (RC 速度單位)，防止積分飽和 (windup)
         self.reset()
 
     # 在成功轉入下一個狀態時（例如看到 ID 0、ID 3 或 ID 5），執行 .reset() 清空內部累積狀態，確保前一個動作的慣性不干擾新動作
@@ -115,6 +116,7 @@ class SimplePID:
         self.prev_error = 0.0
         self.integral = 0.0
         self.d_filt = 0.0
+        self.prev_sign = 0
         self.first = True
         self.prev_time = time.time()
 
@@ -127,6 +129,7 @@ class SimplePID:
         if self.first or dt > 0.5:
             self.first = False
             self.d_filt = 0.0
+            self.integral = 0.0       # 丟失目標太久，舊的積分已不代表現況，清空避免重新看到時暴衝
         else:
             raw_d = (error - self.prev_error) / dt
             self.d_filt = self.d_alpha * raw_d + (1 - self.d_alpha) * self.d_filt
@@ -134,11 +137,19 @@ class SimplePID:
 
         # 死區：已到位就不再推，讓無人機穩定停在容許範圍內
         if abs(error) <= self.deadband:
+            self.integral = 0.0       # 已到位就清空積分，避免殘留累積造成過衝
             return 0
 
+        # 誤差變號 (已衝過目標)：清空積分，避免 I 項繼續往原方向推
+        if error * self.prev_sign < 0:
+            self.integral = 0.0
+        self.prev_sign = 1 if error > 0 else -1
+
         self.integral += error * dt
-        # 限制積分飽和
-        self.integral = max(-50.0, min(50.0, self.integral))
+        # 限制積分飽和：讓 ki * integral 不超過 ±i_max (ki = 0 時不影響)
+        if self.ki > 0:
+            i_lim = self.i_max / self.ki
+            self.integral = max(-i_lim, min(i_lim, self.integral))
 
         output = (self.kp * error) + (self.ki * self.integral) + (self.kd * self.d_filt)
 
@@ -349,6 +360,13 @@ def main():
     # yaw 誤差修正後為小角度 (0 附近)，kp 需調大才有足夠推力
     yaw_pid = SimplePID(kp=0.8, ki=0.0, kd=0.05, min_output=10, max_output=30, deadband=4.0)
 
+    # State 5 跟隨手持 ID 0 專用 PID：目標持續移動，純 P 會一直落後一段距離，加入 I 項補償
+    # (kp/kd 與上面相同，只多了 ki；i_max 限制 I 項最多貢獻的速度量)
+    # 上下高度 (y) 人手持高度變化不大，沿用 y_pid 不加 ki
+    x_follow_pid = SimplePID(kp=0.38, ki=0.08, kd=0.06, min_output=12, max_output=35, deadband=5.0, i_max=10.0)
+    z_follow_pid = SimplePID(kp=0.40, ki=0.08, kd=0.06, min_output=15, max_output=38, deadband=5.0, i_max=12.0)
+    yaw_follow_pid = SimplePID(kp=0.8, ki=0.05, kd=0.05, min_output=10, max_output=35, deadband=4.0, i_max=8.0)
+
     marker_length = 15.0  # cm
     aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
 
@@ -508,6 +526,9 @@ def main():
                         y_pid.reset()
                         z_pid.reset()
                         yaw_pid.reset()
+                        x_follow_pid.reset()
+                        z_follow_pid.reset()
+                        yaw_follow_pid.reset()
                         current_state = 5
                     else:
                         lr_speed = SCAN_ID0_LEFT_SPEED
@@ -537,18 +558,24 @@ def main():
                         aruco.drawAxis(display_frame, intrinsic, distortion, rvec, tvec, 10)
                         z_err = dist_0 - ID0_FOLLOW_DIST
 
-                        # 跟隨手持 Marker 時放大推力上限，讓無人機能緊跟人的步伐與轉彎
-                        lr_speed = x_pid.update(x_err, custom_max=35)
+                        # 跟隨手持 Marker 時改用帶 ki 的 follow PID，讓無人機能緊跟人的步伐與轉彎
+                        lr_speed = x_follow_pid.update(x_err)
                         up_speed = y_pid.update(y_err, custom_max=28)
-                        fwd_speed = z_pid.update(z_err, custom_max=38)
+                        fwd_speed = z_follow_pid.update(z_err)
                         # 手持 marker 角度不固定，改為追蹤 marker 所在方位角 (bearing)，繞椅子更順暢
                         # marker 在右 (x_err > 0) → 誤差為負 → 送出 -yaw_speed 為正 → 右轉
                         yaw_follow_err = -math.degrees(math.atan2(x_err, dist_0))
-                        yaw_speed = yaw_pid.update(yaw_follow_err, custom_max=35)
+                        yaw_speed = yaw_follow_pid.update(yaw_follow_err)
 
                         status_text = f"S5[Follow ID 0] Dist:{dist_0:.1f}cm (Looking for ID 3)"
                     else:
                         lost_marker_counter += 1
+                        # 連續看不到 ID 0 超過 5 幀時清空 follow PID，避免舊的積分在重新看到時把無人機推出去
+                        # (偶爾 1~2 幀漏偵測不清空，保留跟隨動量)
+                        if lost_marker_counter >= 5:
+                            x_follow_pid.reset()
+                            z_follow_pid.reset()
+                            yaw_follow_pid.reset()
                         status_text = f"S5: ID 0 Lost ({lost_marker_counter}) - Hovering..."
 
                 # --- [第三段] State 6: 對準桌緣 ID 3 準備鑽桌底 ---
