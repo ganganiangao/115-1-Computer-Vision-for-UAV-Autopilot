@@ -185,6 +185,7 @@ def execute_maneuver(drone, actions, next_state=None):
         except Exception as e:
             print(f"[MANEUVER ERROR] {e}")
 
+
     drone.send_rc_control(0, 0, 0, 0)
     if next_state is not None:
         current_state = next_state
