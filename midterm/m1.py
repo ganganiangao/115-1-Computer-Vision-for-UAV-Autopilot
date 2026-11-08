@@ -28,7 +28,8 @@ from djitellopy import Tello
 # 參數：PID 加了 deadband，yaw_pid 的 kp 從 0.35 調到 0.8，min_output 從 12 調到 10。x／y／z 的 kp、kd、上限都沒動，賽道參數區（ID1_TARGET_DIST 那一塊）完全沒碰。
 
 
-
+# 還是跟太遠、跟不上：把 z_follow_pid 的 ki 往上調到 0.12～0.15，或把 i_max 調大。
+# 人停下來後無人機衝過頭、前後晃：把 ki 調小到 0.04，或把 i_max 調小。
 
 
 
