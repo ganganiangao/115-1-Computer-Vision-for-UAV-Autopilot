@@ -23,6 +23,10 @@ SCAN_ID0_LEFT_SPEED = -28    # 持續往左找 ID 0 的水平速度 (-100~100)
 # 第二段參數 (手持 ID 0)
 ID0_FOLLOW_DIST = 75.0       # 跟隨手持 ID 0 的保持距離 (cm)
 ID3_HANDOFF_DIST = 170.0     # 當看到 ID 3 且距離小於此值時，自動脫離 ID 0 切入第三段
+ID3_HANDOFF_CONFIRM_FRAMES = 3  # 需連續看到 ID 3 幾幀才交接 (避免繞椅子途中瞥見造成誤觸發)
+ID0_LOST_HOVER_SEC = 0.4     # ID 0 丟失後先懸停多久 (讓機身穩定、減少動態模糊以利重新偵測)
+ID0_LOST_SEARCH_SEC = 3.0    # 懸停後朝「最後看到的方向」慢速轉向搜尋，最長持續秒數
+ID0_SEARCH_YAW_SPEED = 20    # 搜尋時的轉向速度
 
 # 第三段參數 (ID 3 鑽桌子 -> 轉向找 ID 4)
 ID3_TARGET_DIST = 80.0       # 在桌前對準 ID 3 的準備鑽桌距離 (cm)
@@ -65,15 +69,28 @@ current_state = 0
 is_executing_maneuver = False
 
 """ 輕量、具備最低死區補償與量測值微分 (Derivative on Measurement) 的 PID 控制器 """
-class SimplePID:  
-    def __init__(self, kp, ki, kd, min_output=12, max_output=28):
+class SimplePID:
+    """
+    新增 (皆為選用，預設值下行為與舊版完全相同)：
+      deadzone : 誤差死區，以「連續縮減」方式處理，避免目標附近來回抖動
+      d_alpha  : 微分項低通係數 (1.0=不濾波；越小越平滑)
+      min_dt   : 兩次有效更新的最小間隔；小於此值 (通常是同一張重複影像幀) 直接沿用上次輸出，
+                 避免 dt 極小時微分項爆衝
+    """
+    def __init__(self, kp, ki, kd, min_output=12, max_output=28,
+                 deadzone=0.0, d_alpha=1.0, min_dt=0.0):
         self.kp = kp
         self.ki = ki
         self.kd = kd
         self.min_output = min_output
         self.max_output = max_output
+        self.deadzone = deadzone
+        self.d_alpha = d_alpha
+        self.min_dt = min_dt
         self.prev_measurement = None  # 記錄前一次的物理量測值
         self.integral = 0.0
+        self.filtered_d = 0.0
+        self.last_output = 0
         self.prev_time = time.time()
 
     # 在成功轉入下一個狀態時（例如看到 ID 0、ID 3 或 ID 5），執行 .reset() 清空內部累積狀態，確保前一個動作的慣性不干擾新動作
@@ -81,24 +98,40 @@ class SimplePID:
         """狀態切換時清空內部狀態，第一幀不產生任何微分突衝"""
         self.prev_measurement = None
         self.integral = 0.0
+        self.filtered_d = 0.0
+        self.last_output = 0
         self.prev_time = time.time()
 
     def update(self, error, measurement=None, custom_max=None):
+        max_lim = custom_max if custom_max is not None else self.max_output
         current_time = time.time()
         dt = current_time - self.prev_time
+
+        # 0. 重複幀保護：距離上次有效更新太短 -> 沿用上次輸出，不更新任何內部狀態
+        if self.min_dt > 0 and dt < self.min_dt and self.prev_measurement is not None:
+            return int(max(-max_lim, min(max_lim, self.last_output)))
+
         if dt <= 0.001:
             dt = 0.001
+
+        # 0.5 死區 (連續縮減，不會在死區邊界產生輸出跳變)
+        if abs(error) <= self.deadzone:
+            error = 0.0
+        else:
+            error -= math.copysign(self.deadzone, error)
 
         # 1. 積分計算與抗飽和 (Anti-Windup) 限制積分範圍在 [-50, 50]
         self.integral += error * dt
         self.integral = max(-50.0, min(50.0, self.integral))
 
-        # 2. 微分項：對量測值微分 (Derivative on Measurement)
-        # 取負號是因為：當量測值增加時，誤差減小，阻尼需產生反向推力抑制速度
+        # 2. 微分項：對量測值微分 (Derivative on Measurement)，並加上一階低通
         if self.prev_measurement is None:
             derivative = 0.0  # 第一幀或 reset 後平滑啟動，消除 Derivative Kick
+            self.filtered_d = 0.0
         else:
-            derivative = -(measurement - self.prev_measurement) / dt
+            raw_d = -(measurement - self.prev_measurement) / dt
+            self.filtered_d = self.d_alpha * raw_d + (1.0 - self.d_alpha) * self.filtered_d
+            derivative = self.filtered_d
 
         self.prev_measurement = measurement
         self.prev_time = current_time
@@ -107,9 +140,6 @@ class SimplePID:
         output = (self.kp * error) + (self.ki * self.integral) + (self.kd * derivative)
 
         # 4. 最低死區補償 (Deadband Compensation)
-        # 當空間誤差大於容忍門檻 abs(error) > 3.0，代表系統明確需要修正位置。
-        # 若此時算出的 PID 輸出小於最低動作速度 0 < output < min_output
-        # 強行將輸出提升至 min_output（正向或負向），確保馬達能產生足夠推力克服靜摩擦力
         if abs(error) > 3.0:
             if 0 < output < self.min_output:
                 output = self.min_output
@@ -117,8 +147,23 @@ class SimplePID:
                 output = -self.min_output
 
         # 5. 輸出上限限制與型別轉換
-        max_lim = custom_max if custom_max is not None else self.max_output
-        return int(max(-max_lim, min(max_lim, output)))
+        result = int(max(-max_lim, min(max_lim, output)))
+        self.last_output = result
+        return result
+
+
+class LowPass:
+    """一階指數低通濾波器，用來平滑手持 Marker 的姿態抖動"""
+    def __init__(self, alpha=0.5):
+        self.alpha = alpha
+        self.value = None
+
+    def update(self, x):
+        self.value = x if self.value is None else self.alpha * x + (1.0 - self.alpha) * self.value
+        return self.value
+
+    def reset(self):
+        self.value = None
 
 
 def async_takeoff(drone):
@@ -279,11 +324,12 @@ def get_marker_pose(corners, ids, target_id, marker_length, intrinsic, distortio
     idx = list(flat_ids).index(target_id)
     # rvec（旋轉向量陣列 Rotation Vector）形狀為 (N, 1, 3)，（N 為畫面中成功辨識出的 Marker 數量）
     # tvecs（平移向量陣列 Translation Vectors）
+    # 只對目標 Marker 做姿態估算 (原本會對畫面中所有 Marker 都算一次，且一幀內會被呼叫多次)
     rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(
-        corners, marker_length, intrinsic, distortion
+        corners[idx:idx + 1], marker_length, intrinsic, distortion
     )
-    rvec = rvecs[idx][0]
-    tvec = tvecs[idx][0]
+    rvec = rvecs[0][0]
+    tvec = tvecs[0][0]
 
     x_err = tvec[0]
     y_err = -tvec[1]
@@ -317,6 +363,17 @@ def main():
     z_pid = SimplePID(kp=0.40, ki=0.0, kd=0.06, min_output=15, max_output=35)
     yaw_pid = SimplePID(kp=0.35, ki=0.0, kd=0.05, min_output=12, max_output=30)
 
+    # ---- 跟隨手持 ID 0 專用 (State 5) ----
+    # 與一般對準不同：不做最低輸出補償 (min_output=0)、加死區、微分低通、忽略重複幀
+    # 注意：measurement 傳入「負的」量測值，使微分項成為真正的阻尼 (抑制速度) 而非助推
+    follow_yaw_pid = SimplePID(kp=2.4,  ki=0.0, kd=0.10, min_output=0, max_output=35, deadzone=3.0, d_alpha=0.4, min_dt=0.03)  # 單位：度
+    follow_z_pid   = SimplePID(kp=0.55, ki=0.0, kd=0.05, min_output=0, max_output=38, deadzone=6.0, d_alpha=0.4, min_dt=0.03)  # 單位：cm
+    follow_y_pid   = SimplePID(kp=0.50, ki=0.0, kd=0.05, min_output=0, max_output=25, deadzone=6.0, d_alpha=0.4, min_dt=0.03)
+    follow_x_pid   = SimplePID(kp=0.25, ki=0.0, kd=0.00, min_output=0, max_output=15, deadzone=8.0, d_alpha=0.4, min_dt=0.03)  # 輔助側移，主要靠 yaw 置中
+    follow_pids = [follow_yaw_pid, follow_z_pid, follow_y_pid, follow_x_pid]
+    lp_x, lp_y, lp_d = LowPass(0.5), LowPass(0.5), LowPass(0.5)
+    follow_filters = [lp_x, lp_y, lp_d]
+
     marker_length = 15.0  # cm
     aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
 
@@ -326,6 +383,7 @@ def main():
     parameters.adaptiveThreshWinSizeMax = 23
     parameters.adaptiveThreshWinSizeStep = 5
     parameters.minMarkerPerimeterRate = 0.015
+    parameters.cornerRefinementMethod = aruco.CORNER_REFINE_SUBPIX  # 角點次像素精修：減少手持 Marker 姿態抖動
 
     drone = Tello()
     drone.connect()
@@ -339,7 +397,10 @@ def main():
     frame_read = drone.get_frame_read()
 
     target_reached_counter = 0
-    lost_marker_counter = 0
+    id0_confirm = 0        # State 4: 連續看到 ID 0 的幀數
+    id3_confirm = 0        # State 5: 連續看到 ID 3 的幀數
+    lost_since = None      # State 5: ID 0 開始丟失的時間
+    last_x_sign = 1        # State 5: 最後看到 ID 0 在左(-1)或右(+1)
 
     try:
         while True:
@@ -467,55 +528,94 @@ def main():
                     found_0, _, _, _, _, dist_0, _ = get_marker_pose(
                         corners, ids, 0, marker_length, intrinsic, distortion
                     )
-                    if found_0:
+                    # 需連續 2 幀看到才算數，避免單幀誤偵測就切進跟隨模式
+                    id0_confirm = id0_confirm + 1 if found_0 else 0
+                    if id0_confirm >= 2:
                         print(f"[STATE] 捕獲手持 ID 0 (距離 {dist_0:.1f}cm)！進入 STATE 5 跟隨模式")
-                        x_pid.reset()
-                        y_pid.reset()
-                        z_pid.reset()
-                        yaw_pid.reset()
+                        id0_confirm = 0
+                        for p in (x_pid, y_pid, z_pid, yaw_pid):
+                            p.reset()
+                        for p in follow_pids:
+                            p.reset()
+                        for f in follow_filters:
+                            f.reset()
+                        lost_since = None
+                        id3_confirm = 0
                         current_state = 5
                     else:
                         lr_speed = SCAN_ID0_LEFT_SPEED
                         status_text = "S4: Sliding Left to find Handheld ID 0..."
 
                 # --- [第二段] State 5: 跟隨手持 ID 0 繞椅子，並自動偵測 ID 3 交接 ---
+                # 控制策略：yaw 負責把 ID 0 轉到畫面中央 (以方位角為誤差)，前後負責保持距離，
+                # 左右側移只做小幅輔助；不再去對齊 Marker 本身的朝向 (手持時朝向本來就會亂轉)。
                 elif current_state == 5:
-                    # 優先檢查是否已經繞完椅子看到桌上的 ID 3 (免遮擋自動交接)
+                    # (1) 優先檢查 ID 3 交接：需連續多幀確認，避免誤觸發
                     found_3, _, _, _, _, dist_3, _ = get_marker_pose(
                         corners, ids, 3, marker_length, intrinsic, distortion
                     )
-                    if found_3 and dist_3 <= ID3_HANDOFF_DIST:
+                    id3_confirm = id3_confirm + 1 if (found_3 and dist_3 <= ID3_HANDOFF_DIST) else 0
+
+                    if id3_confirm >= ID3_HANDOFF_CONFIRM_FRAMES:
                         print(f"[STATE] 偵測到桌前 ID 3 (距離 {dist_3:.1f}cm)！自動脫離 ID 0 進入 STATE 6")
                         target_reached_counter = 0
-                        x_pid.reset()
-                        y_pid.reset()
-                        z_pid.reset()
-                        yaw_pid.reset()
-                        fwd_speed = 32
+                        id3_confirm = 0
+                        for p in (x_pid, y_pid, z_pid, yaw_pid):
+                            p.reset()
+                        for p in follow_pids:
+                            p.reset()
                         current_state = 6
-                        continue
-
-                    found_0, rvec, tvec, x_err, y_err, dist_0, yaw_deg = get_marker_pose(
-                        corners, ids, 0, marker_length, intrinsic, distortion
-                    )
-                    if found_0:
-                        lost_marker_counter = 0
-                        aruco.drawAxis(display_frame, intrinsic, distortion, rvec, tvec, 10)
-                        z_err = dist_0 - ID0_FOLLOW_DIST
-
-                        # 跟隨手持 Marker 時放大推力上限，讓無人機能緊跟人的步伐與轉彎
-                        lr_speed = x_pid.update(x_err, measurement=x_err, custom_max=35)
-                        up_speed = y_pid.update(y_err, measurement=y_err, custom_max=28)
-                        # ★★★ 關鍵修改：前後軸帶入 measurement=dist_0，避免手持晃動產生微分突衝 ★★★
-                        fwd_speed = z_pid.update(z_err, measurement=dist_0, custom_max=38)
-                        # 手持轉彎時，用橫向誤差輔助 Yaw 轉向，繞椅子更順暢
-                        yaw_combined_err = yaw_deg + (x_err * 0.35)
-                        yaw_speed = yaw_pid.update(yaw_combined_err, measurement=yaw_deg, custom_max=35)
-
-                        status_text = f"S5[Follow ID 0] Dist:{dist_0:.1f}cm (Looking for ID 3)"
+                        status_text = "S5->S6 handoff"
                     else:
-                        lost_marker_counter += 1
-                        status_text = f"S5: ID 0 Lost ({lost_marker_counter}) - Hovering..."
+                        found_0, rvec, tvec, x_err, y_err, dist_0, yaw_deg = get_marker_pose(
+                            corners, ids, 0, marker_length, intrinsic, distortion
+                        )
+                        if found_0:
+                            # 丟失太久後重新看到：清掉舊濾波值與 PID 狀態，避免用過期資料算出突衝
+                            if lost_since is not None and time.time() - lost_since > 0.5:
+                                for p in follow_pids:
+                                    p.reset()
+                                for f in follow_filters:
+                                    f.reset()
+                            lost_since = None
+                            aruco.drawAxis(display_frame, intrinsic, distortion, rvec, tvec, 10)
+
+                            # (2) 低通濾波，抑制手持晃動與姿態估算雜訊
+                            fx = lp_x.update(x_err)
+                            fy = lp_y.update(y_err)
+                            fd = lp_d.update(dist_0)
+                            last_x_sign = 1 if fx >= 0 else -1
+
+                            bearing = math.degrees(math.atan2(fx, fd))   # 方位角：Marker 在右側為正
+                            z_err = fd - ID0_FOLLOW_DIST
+
+                            # (3) 四軸控制 (measurement 取負值 -> 微分項為阻尼)
+                            #     rc yaw 為正 = 順時針；Marker 在右側 -> 要順時針轉。
+                            #     送出時會再取負號 (-yaw_speed)，所以這裡先取負。
+                            yaw_speed = -follow_yaw_pid.update(bearing, measurement=-bearing)
+                            fwd_speed = follow_z_pid.update(z_err, measurement=-fd)
+                            up_speed = follow_y_pid.update(fy, measurement=-fy)
+                            lr_speed = follow_x_pid.update(fx, measurement=-fx)
+
+                            # Marker 偏到畫面邊緣時 (還沒轉過去面對它)，降低前進速度，避免衝過頭/切角
+                            if abs(bearing) > 20:
+                                fwd_speed = int(fwd_speed * 0.5)
+
+                            status_text = f"S5[Follow ID 0] Dist:{fd:.1f}cm Bearing:{bearing:.1f}deg"
+                        else:
+                            # (4) ID 0 丟失處理：先懸停 -> 朝最後看到的方向慢轉搜尋 -> 超時懸停
+                            now = time.time()
+                            if lost_since is None:
+                                lost_since = now
+                            lost_t = now - lost_since
+                            if lost_t < ID0_LOST_HOVER_SEC:
+                                status_text = f"S5: ID 0 Lost ({lost_t:.1f}s) - Hovering..."
+                            elif lost_t < ID0_LOST_HOVER_SEC + ID0_LOST_SEARCH_SEC:
+                                # 送出的 rc yaw = -yaw_speed = SEARCH_SPEED * last_x_sign
+                                yaw_speed = -ID0_SEARCH_YAW_SPEED * last_x_sign
+                                status_text = f"S5: ID 0 Lost ({lost_t:.1f}s) - Turning {'right' if last_x_sign > 0 else 'left'} to search..."
+                            else:
+                                status_text = f"S5: ID 0 Lost ({lost_t:.1f}s) - Hovering (give up search)"
 
                 # --- [第三段] State 6: 對準桌緣 ID 3 準備鑽桌底 ---
                 elif current_state == 6:
