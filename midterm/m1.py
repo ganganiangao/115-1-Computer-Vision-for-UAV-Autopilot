@@ -303,10 +303,10 @@ def main():
         return
 
     # PID 控制器 (微調提高上限以加快賽道收斂速度)
-    x_pid = SimplePID(kp=0.38, ki=0.0, kd=0.06, min_output=12, max_output=28)
-    y_pid = SimplePID(kp=0.48, ki=0.0, kd=0.05, min_output=15, max_output=28)
-    z_pid = SimplePID(kp=0.40, ki=0.0, kd=0.06, min_output=15, max_output=35)
-    yaw_pid = SimplePID(kp=0.35, ki=0.0, kd=0.05, min_output=12, max_output=30)
+    x_pid = SimplePID(kp=1.25, ki=0.0, kd=0.05, min_output=12, max_output=50)
+    y_pid = SimplePID(kp=0.75, ki=0.0, kd=0.05, min_output=15, max_output=50)
+    z_pid = SimplePID(kp=1.0, ki=0.0, kd=0.05, min_output=15, max_output=50)
+    yaw_pid = SimplePID(kp=2.3, ki=0.0, kd=0.05, min_output=12, max_output=50)
 
     marker_length = 15.0  # cm
     aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
