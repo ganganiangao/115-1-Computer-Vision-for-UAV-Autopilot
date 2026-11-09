@@ -14,11 +14,12 @@ logging.getLogger("djitellopy").setLevel(logging.WARNING)
 # 賽道參數微調區 (依 EAB06 現場實際高度與距離微調)
 # ==========================================
 # 第一段參數
-ID1_TARGET_DIST = 50.0       # ID 1 目標距離 (cm)
-ID1_BYPASS_RIGHT = 90        # 繞過 ID 1 向右距離 (cm)
+ID1_TARGET_DIST = 70.0       # ID 1 目標距離 (cm)
+ID1_BYPASS_RIGHT = 120        # 繞過 ID 1 向右距離 (cm)
+ID1_BYPASS_FORWARD = 125        # 繞過 ID 1 向前距離 (cm)
 ID2_TARGET_DIST = 115.0      # ID 2 目標距離 (cm)
-ID2_INIT_LEFT = 60           # 看到 ID 2 到位後，先盲左移脫離板子的距離 (cm)
-SCAN_ID0_LEFT_SPEED = -28    # 持續往左找 ID 0 的水平速度 (-100~100)
+ID2_INIT_LEFT = 120           # 看到 ID 2 到位後，先盲左移脫離板子的距離 (cm)
+SCAN_ID0_LEFT_SPEED = 0    # 持續往左找 ID 0 的水平速度 (-100~100)
 
 # 第二段參數 (手持 ID 0)
 ID0_FOLLOW_DIST = 75.0       # 跟隨手持 ID 0 的保持距離 (cm)
@@ -303,10 +304,10 @@ def main():
         return
 
     # PID 控制器 (微調提高上限以加快賽道收斂速度)
-    x_pid = SimplePID(kp=1.25, ki=0.0, kd=0.05, min_output=12, max_output=50)
-    y_pid = SimplePID(kp=0.75, ki=0.0, kd=0.05, min_output=15, max_output=50)
-    z_pid = SimplePID(kp=1.0, ki=0.0, kd=0.05, min_output=15, max_output=50)
-    yaw_pid = SimplePID(kp=2.3, ki=0.0, kd=0.05, min_output=12, max_output=50)
+    x_pid = SimplePID(kp=0.5, ki=0.0, kd=0.05, min_output=12, max_output=30)
+    y_pid = SimplePID(kp=0.75, ki=0.0, kd=0.05, min_output=15, max_output=30)
+    z_pid = SimplePID(kp=1.0, ki=0.0, kd=0.05, min_output=15, max_output=30)
+    yaw_pid = SimplePID(kp=2.3, ki=0.0, kd=0.05, min_output=12, max_output=30)
 
     marker_length = 15.0  # cm
     aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
@@ -380,12 +381,16 @@ def main():
 
                         z_tolerance = 7.5
                         x_tolerance = 15.0
-                        is_in_range = (abs(z_err) <= z_tolerance) and (abs(x_err) <= x_tolerance)              # 前後距離在 50 ± 7.5 cm 內，左右偏差在 ± 15.0 cm 內（必須居中正對，不能太偏）
+                        yaw_tolerance = 8 # 航向必須正對 (± 8度 避免盲飛撞桌腳)
+                        ## 原本180-yaw_deg的寫法會讓tolerance不成立
+                        yaw_diff = (yaw_deg - 180 + 180) % 360 -180
+
+                        is_in_range = (abs(z_err) <= z_tolerance) and (abs(x_err) <= x_tolerance) and (abs(yaw_diff) <= yaw_tolerance)
                         # 若某幀因為風吹或視角反光稍微出界：只減 1 而不是直接歸零，防止無人機在門檻邊緣頻繁重置而卡關
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
                         status_text = f"S1[ID 1] Dist:{dist:.1f}/{ID1_TARGET_DIST}cm ({target_reached_counter}/4)"
 
-                        if is_flying and target_reached_counter >= 4:
+                        if is_flying and target_reached_counter >= 30:
                             target_reached_counter = 0
                             current_state = 2
 
@@ -400,9 +405,11 @@ def main():
                             actual_right_dist = max(min_safe, min(max_safe, actual_right_dist))
                             
                             print(f"[STATE] ID 1 到位！最後偏差 x_err={x_err:.1f}cm | 動態向右避障 {actual_right_dist}cm")
+                            print(f"[STATE] ID 1 到位！最後偏差 yaw_diff={yaw_diff:.1f}")
                             threading.Thread(
                                 target=execute_maneuver,
-                                args=(drone, [("right", actual_right_dist)], 3),                                            # <-- 這裡的 3 就是 next_state, i.e. current_state = 3
+                                args=(drone, [("right", actual_right_dist),
+                                ("forward", ID1_BYPASS_FORWARD)], 3),                                            # <-- 這裡的 3 就是 next_state, i.e. current_state = 3
                                 daemon=True
                             ).start()
                     else:
@@ -424,11 +431,16 @@ def main():
 
                         x_tolerance = 15
                         z_tolerance = 10.0  # 深度容許公差 ±10cm (範圍 105 ~ 125 cm)
-                        is_in_range = (abs(z_err) <= z_tolerance) and (abs(x_err) <= x_tolerance)                                       # 判定條件：前後在 115 ± 10cm 內，且左右在 ±15cm 內
+                        yaw_tolerance = 15 # 航向必須正對 (± 8度 避免盲飛撞桌腳)
+                        ## 原本180-yaw_deg的寫法會讓tolerance不成立
+                        yaw_diff = (yaw_deg - 180 + 180) % 360 -180
+
+                        is_in_range = (abs(z_err) <= z_tolerance) and (abs(x_err) <= x_tolerance) and (abs(yaw_diff) <= yaw_tolerance)
+                                    # 判定條件：前後在 115 ± 10cm 內，且左右在 ±15cm 內
                         target_reached_counter = target_reached_counter + 1 if is_in_range else max(0, target_reached_counter - 1)
                         status_text = f"S3[ID 2] Dist:{dist:.1f}/{ID2_TARGET_DIST}cm ({target_reached_counter}/4)"
 
-                        if is_flying and target_reached_counter >= 4:
+                        if is_flying and target_reached_counter >= 15:
                             target_reached_counter = 0
                             # 加上 reset，防止即將進入 State 4/5 時殘留累積的誤差/積分動量
                             x_pid.reset()
@@ -442,6 +454,7 @@ def main():
                             actual_left_dist = max(min_safe, min(max_safe, actual_left_dist))
 
                             print(f"[STATE] ID 2 到位！最後偏差 x_err={x_err:.1f}cm，動態向左脫離板子 {actual_left_dist}cm")
+                            print(f"[STATE] ID 2 到位！最後偏差 yaw_diff={yaw_diff:.1f}")
                             threading.Thread(
                                 target=execute_maneuver,
                                 args=(drone, [("left", actual_left_dist)], 4),
